@@ -9,3 +9,25 @@
 * 18/10/2021 (Lin): Add sample data and obb visualization for the data.
 
 </details>
+
+
+<details>
+  <summary><b> The Project Structure: </b></summary>
+  
+```
+└─ OrientedBoundingBox
+   ├─ data
+   │   ├─ dataset.py
+   │   ├─ downloader.py
+   │   └─ visualize.py
+   ├─ sample_data
+   │   ├─ train
+   │   │  ├─ images
+   │   │  └─ labelTxt
+   │   └─ val
+   │      ├─ images
+   │      └─ labelTxt
+   ├─ main.py
+   └─ README.md
+```
+</details>

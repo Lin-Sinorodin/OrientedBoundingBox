@@ -12,7 +12,7 @@
     ```
 
     <details>
-      <summary> The dataset structure:</summary>
+      <summary><b> The dataset structure: </b></summary>
       
     ```
     └─ DOTAv1
