@@ -5,7 +5,7 @@
 * __Option 1__: Download the dataset manually from the [DOTA website](https://captain-whu.github.io/DOTA/dataset.html).
 * __Option 2__: (recommended) Download the dataset using the following code:
     ```python
-    from data import DatasetDownloader
+    from code.data import DatasetDownloader
     
     dataset_downloader = DatasetDownloader(path='example')
     dataset_downloader.download_data_from_drive()

@@ -1,7 +1,7 @@
 import numpy as np
 from torch.utils.data import DataLoader
 
-from data import Dataset, plot_obb
+from code.data import Dataset, plot_obb
 
 train_dataset = Dataset(path='sample_data/train')
 train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
