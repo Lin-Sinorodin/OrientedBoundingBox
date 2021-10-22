@@ -1,1 +1,1 @@
-from .yolov5 import YOLOv5
+from .yolov5 import YOLOv5Features
