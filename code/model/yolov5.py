@@ -1,23 +1,20 @@
 import os
 import gdown
 import torch
+import torch.nn as nn
 
 
-class YOLOv5:
-    def __init__(self, weights_dir='weights', cpu=False):
+class YOLOv5Features(nn.Module):
+    def __init__(self, weights_dir='weights', requires_grad=False):
+        super(YOLOv5Features, self).__init__()
         self.weights_dir = weights_dir
+        self.requires_grad = requires_grad
         self.weights_path = self._download_weights()
+
         self.model = self._load_model()
-
-        # the pretrained model doesn't run on cpu, so use yolov5s for debug on cpu
-        if cpu:
-            self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-
         self.model_sequential = list(list(self.model.children())[0].children())[0]
-        self.prev_layers = [
-            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, [-1, 6], -1, -1,
-            -1, [-1, 4], -1, -1, [-1, 14], -1, -1, [-1, 10], -1, [17, 20, 23]
-        ]
+        self.prev_layers = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, [-1, 6], -1, -1,
+                            -1, [-1, 4], -1, -1, [-1, 14], -1, -1, [-1, 10], -1, [17, 20, 23]]
 
     def _download_weights(self):
         """Download pretrained weights from: https://github.com/hukaixuan19970627/YOLOv5_DOTA_OBB"""
@@ -28,11 +25,21 @@ class YOLOv5:
         return weights_path
 
     def _load_model(self):
-        return torch.hub.load('ultralytics/yolov5', 'custom', self.weights_path)
+        model = torch.hub.load('ultralytics/yolov5', 'custom', self.weights_path)
 
-    def get_features(self, img_cuda):
+        # the pretrained model doesn't run on cpu, so use yolov5s for debug on cpu (temp)
+        if torch.cuda.is_available() is False:
+            print('Running on CPU - not using pretrained weights')
+            model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+
+        for k, v in model.named_parameters():
+            v.requires_grad = self.requires_grad
+
+        return model
+
+    def forward(self, img):
         """Get features from YOLOv5 Backbone+Neck on the given image"""
-        x, y = img_cuda, []
+        x, y = img, []
         for layer_idx, layer in enumerate(self.model_sequential[:-1]):
             prev_layer = self.prev_layers[layer_idx]
             if prev_layer != -1:  # if current layer is concat or SPP
