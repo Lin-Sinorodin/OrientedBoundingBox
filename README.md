@@ -7,7 +7,9 @@
 * 17/10/2021 (Lin): Write script for downloading DODAv1.0 dataset.
 * 18/10/2021 (Lin): Create a Pytorch `Dataset` and `DataLoader` for DOTA dataset.
 * 18/10/2021 (Lin): Add sample data and obb visualization for the data.
-* 21/10/2021 (Lin): Add YOLOv5 for Backbone and Neck feature extraction
+* 21/10/2021 (Lin): Add YOLOv5 for Backbone and Neck feature extraction.
+* 22/10/2021 (Lin): Add code for 2d Gaussian for rotated bbox.
+* 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper.
 
 </details>
 
@@ -22,8 +24,11 @@
    │   │   ├─ dataset.py
    │   │   ├─ downloader.py
    │   │   └─ visualize.py
-   │   └─ model
-   │       └─ yolov5.py
+   │   ├─ model
+   │   │   ├─ gghl.py
+   │   │   └─ yolov5.py
+   │   └─ utils
+   │       └─ gaussian.py
    ├─ sample_data
    │   ├─ train
    │   │  ├─ images
