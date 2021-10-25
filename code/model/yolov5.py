@@ -6,7 +6,7 @@ import torch.nn as nn
 
 class YOLOv5Features(nn.Module):
     def __init__(self, weights_dir='weights', requires_grad=False):
-        super().__init__()
+        super().__init__(self)
         self.weights_dir = weights_dir
         self.requires_grad = requires_grad
         self.weights_path = self._download_weights()
