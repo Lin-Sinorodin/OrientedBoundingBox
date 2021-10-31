@@ -48,7 +48,7 @@ class DatasetDownloader:
             os.remove(zip_path)
 
 
-class BoundingBox:
+class Label:
     def __init__(self, path):
         self.path = path
         self.xyxyxyxy, self.objects_class = self._load_from_dota()

@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.utils.data
 
-from code.utils import BoundingBox
+from code.utils import Label
 
 DOTA_V1_5_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',
@@ -17,11 +17,14 @@ DOTA_NAME_TO_INT = {name: idx for idx, name in enumerate(DOTA_V1_5_NAMES)}
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, path):
+    def __init__(self, path, obb_format='xyxyxyxy'):
+        assert obb_format in ['xyxyxyxy', 'xywha'], 'Unknown obb format'
+
         self.path = path
+        self.obb_format = obb_format
+
         self.images_dir = '/'.join([self.path, 'images'])
         self.labels_dir = '/'.join([self.path, 'labelTxt'])
-
         self.images_names, self.labels_names = self._get_matching_image_label()
         self.images_paths, self.labels_paths = self._get_matches_paths()
 
@@ -48,13 +51,15 @@ class Dataset(torch.utils.data.Dataset):
         return torch.tensor(cv2.imread(self.images_paths[idx])[..., ::-1] / 255).permute(2, 0, 1).float()
 
     def _get_label(self, idx) -> (torch.tensor, torch.tensor):
-        obb, object_class = BoundingBox(self.labels_paths[idx]).xyxyxyxy
-        return torch.tensor(obb), torch.tensor(object_class)
+        label = Label(self.labels_paths[idx])
+        obb = label.xyxyxyxy if self.obb_format == 'xyxyxyxy' else label.xywha
+        objects_class = label.objects_class
+        return torch.tensor(obb), torch.tensor(objects_class)
 
     def __len__(self):
         return len(self.images_names)
 
     def __getitem__(self, idx):
         img = self._get_image(idx)
-        obb, object_class = self._get_label(idx)
-        return img, obb, object_class
+        obb, objects_class = self._get_label(idx)
+        return img, obb, objects_class
