@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.utils.data
 
+from code.utils import BoundingBox
+
 DOTA_V1_5_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',
     'large-vehicle', 'ship', 'tennis-court', 'basketball-court', 'storage-tank',
@@ -46,14 +48,8 @@ class Dataset(torch.utils.data.Dataset):
         return torch.tensor(cv2.imread(self.images_paths[idx])[..., ::-1] / 255).permute(2, 0, 1).float()
 
     def _get_label(self, idx) -> (torch.tensor, torch.tensor):
-        with open(self.labels_paths[idx]) as f:
-            raw_label = f.read().split('\n')[:-1]
-            raw_label = [line.split(' ') for line in raw_label if line[0].isdigit()]
-            raw_label = np.array(raw_label)
-
-            obb = np.float32(raw_label[:, :8])
-            object_class = [int(DOTA_NAME_TO_INT[name]) for name in raw_label[:, 8]]
-            return torch.tensor(obb), torch.tensor(object_class)
+        obb, object_class = BoundingBox(self.labels_paths[idx]).xyxyxyxy
+        return torch.tensor(obb), torch.tensor(object_class)
 
     def __len__(self):
         return len(self.images_names)
