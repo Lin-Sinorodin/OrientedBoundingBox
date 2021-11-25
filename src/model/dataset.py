@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.utils.data
 
-from code.utils import Label
+from src.utils import Label
 
 DOTA_V1_5_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',

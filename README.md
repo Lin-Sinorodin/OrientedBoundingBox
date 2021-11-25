@@ -10,6 +10,8 @@
 * 21/10/2021 (Lin): Add YOLOv5 for Backbone and Neck feature extraction.
 * 22/10/2021 (Lin): Add code for 2d Gaussian for rotated bbox.
 * 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper.
+* 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5).
+* 25/11/2021 (Lin): Refactor the backbone code
 
 </details>
 
@@ -19,22 +21,25 @@
   
 ```
 └─ OrientedBoundingBox
-   ├─ code
-   │   ├─ model
-   │   │   ├─ dataset.py
-   │   │   ├─ gghl.py
-   │   │   └─ yolov5.py
-   │   └─ utils
-   │       ├─ data.py
-   │       ├─ gaussian.py
-   │       └─ visualize.py
+   ├─ assets
    ├─ sample_data
-   │   ├─ train
-   │   │  ├─ images
-   │   │  └─ labelTxt
-   │   └─ val
-   │      ├─ images
-   │      └─ labelTxt
+   │  ├─ train
+   │  │  ├─ images
+   │  │  └─ labelTxt
+   │  └─ val
+   │     ├─ images
+   │     └─ labelTxt
+   ├─ src
+   │  ├─ model
+   │  │  ├─ common.py
+   │  │  ├─ dataset.py
+   │  │  ├─ feature_map.py
+   │  │  ├─ gghl.py
+   │  │  └─ yolov5.py
+   │  └─ utils
+   │     ├─ data.py
+   │     ├─ gaussian.py
+   │     └─ visualize.py
    ├─ main.py
    └─ README.md
 ```
@@ -80,7 +85,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
 * __Option 1__: Download the dataset manually from the [DOTA website](https://captain-whu.github.io/DOTA/dataset.html).
 * __Option 2__: (recommended) Download the dataset using the following code:
     ```python
-    from code.utils import DatasetDownloader
+    from src.utils import DatasetDownloader
     
     dataset_downloader = DatasetDownloader(path='example')
     dataset_downloader.download_data_from_drive()
@@ -95,8 +100,8 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
     ```python
     import numpy as np
     from torch.utils.data import DataLoader
-    from code.model import Dataset
-    from code.utils import plot_obb
+    from src.model import Dataset
+    from src.utils import plot_obb
     
     train_dataset = Dataset(path='sample_data/train')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)

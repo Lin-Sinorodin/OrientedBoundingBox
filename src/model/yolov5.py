@@ -50,6 +50,7 @@ class YOLOv5Features(nn.Module):
 
             x = layer(x)
             y.append(x if layer_idx in [4, 6, 10, 14, 17, 20, 23] else None)
+            print(f'{layer_idx=}, {prev_layer=}, {x.shape=}')
 
-        P3, P4, P5 = [i for i in y if i != None][-3:]
+        P3, P4, P5 = [i for i in y if i is not None][-3:]
         return P3, P4, P5
