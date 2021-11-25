@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.model.common import Conv, CSP3, CSP3Transformer, SPPF, Concat, ConvMixer
+from src.model import common
 
 
 BACKBONE = [
@@ -79,7 +79,7 @@ class FeatureMap(nn.Module):
         next_channels_in = 3
         for layer_idx, (layer_str, layer_kwargs) in enumerate(self.backbone + self.neck):
             assert isinstance(layer_str, str)
-            layer_obj = eval(layer_str)
+            layer_obj = eval(f'common.{layer_str}')
 
             channels_in = next_channels_in
             prev_layer = -1
@@ -89,11 +89,11 @@ class FeatureMap(nn.Module):
             elif layer_obj is nn.Upsample:
                 layer = layer_obj(size=None, **layer_kwargs)
                 layer_kwargs['channel_out'] = channels_in
-            elif layer_obj is Concat:
+            elif layer_obj is common.Concat:
                 layer = layer_obj()
                 layer_kwargs['channel_out'] = channels_in * 2
                 prev_layer = [-1, layer_kwargs['layer_idx']]
-            elif layer_obj is ConvMixer:
+            elif layer_obj is common.ConvMixer:
                 layer = layer_obj(**layer_kwargs)
                 layer_kwargs['channel_out'] = layer_kwargs['dim']
             else:
