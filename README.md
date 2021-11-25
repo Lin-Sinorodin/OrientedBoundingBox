@@ -22,7 +22,7 @@
 ```
 └─ OrientedBoundingBox
    ├─ assets
-   ├─ sample_data
+   ├─ DOTA_sample_data
    │  ├─ train
    │  │  ├─ images
    │  │  └─ labelTxt
@@ -40,8 +40,11 @@
    │     ├─ data.py
    │     ├─ gaussian.py
    │     └─ visualize.py
-   ├─ main.py
-   └─ README.md
+   ├─ pyproject.toml
+   ├─ README.md
+   ├─ requirements.txt
+   ├─ setup.cfg
+   └─ setup.py
 ```
 </details>
 
@@ -103,7 +106,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
     from src.model import Dataset
     from src.utils import plot_obb
     
-    train_dataset = Dataset(path='sample_data/train')
+    train_dataset = Dataset(path='DOTA_sample_data/train')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
     ```
 
