@@ -99,30 +99,36 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
 <details open>
   <summary><b> Use the Data </b></summary>
 
-* Pytorch `DataLoader`:
+* Get a Pytorch `DataLoader`:
     ```python
     import numpy as np
     from torch.utils.data import DataLoader
-    from src.model import Dataset
-    from src.utils import plot_obb
+  
+    from src.utils import Dataset, plot_obb
     
     train_dataset = Dataset(path='DOTA_sample_data/train')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
+  
+    # get one sample
+    img, obb, object_class = next(iter(train_data_loader))
+  
+    # iterate over all samples
+    for img, obb, object_class in train_data_loader:
+        ...
+
     ```
 
 * Show Annotations:
     ```python
-    for img, obb, object_class in train_data_loader:
-        print(img.shape)
-        print(obb.shape)
-        print(object_class.shape)
+    img, obb, object_class = next(iter(train_data_loader))
+    print(img.shape)
+    print(obb.shape)
+    print(object_class.shape)
     
-        # show an image with oriented bounding box
-        img_show = img.squeeze().permute(1, 2, 0).numpy()
-        obb_show = np.int16(obb.squeeze().numpy())
-        plot_obb(img_show, obb_show)
-    
-        break
+    # show an image with oriented bounding box
+    img_show = img.squeeze().permute(1, 2, 0).numpy()
+    obb_show = np.int16(obb.squeeze().numpy())
+    plot_obb(img_show, obb_show)
     ```
 
 </details>

@@ -19,13 +19,13 @@ def same_padding(kernel_size: Union[int, Tuple[int, int]]) -> Union[int, Tuple[i
 class Conv(nn.Module):
     """Convolution block with batch normalization and activation"""
     def __init__(self, channel_in: int, channel_out: int, kernel_size: int = 1, stride: int = 1,
-                 padding=None, activation=True):
+                 padding=None, activation=nn.SiLU()):
         super().__init__()
         if padding is None:
             padding = same_padding(kernel_size)
         self.conv = nn.Conv2d(channel_in, channel_out, kernel_size, stride, padding, bias=False)
         self.bn = nn.BatchNorm2d(channel_out)
-        self.act = nn.SiLU() if activation is True else (activation if isinstance(activation, nn.Module) else nn.Identity())
+        self.act = activation if isinstance(activation, nn.Module) else nn.Identity()
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
@@ -91,7 +91,9 @@ class CSP3(nn.Module):
         self.cv1 = Conv(channel_in, channel_hidden, 1, 1)
         self.cv2 = Conv(channel_in, channel_hidden, 1, 1)
         self.cv3 = Conv(2 * channel_hidden, channel_out, 1)  # act=FReLU(c2)
-        self.m = nn.Sequential(*[Bottleneck(channel_hidden, channel_hidden, shortcut, expansion=1.) for _ in range(number)])
+        self.m = nn.Sequential(
+            *[Bottleneck(channel_hidden, channel_hidden, shortcut, expansion=1.) for _ in range(number)]
+        )
 
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
@@ -154,5 +156,5 @@ def ConvMixer(dim, depth, kernel_size=7):
                 nn.Conv2d(dim, dim, kernel_size=1),
                 nn.GELU(),
                 nn.BatchNorm2d(dim)
-        ) for i in range(depth)],
+        ) for _ in range(depth)],
     )
