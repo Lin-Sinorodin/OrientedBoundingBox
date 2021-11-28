@@ -13,6 +13,7 @@
 * 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5).
 * 25/11/2021 (Lin): Refactor the backbone code
 * 28/11/2021 (Lin): Add theoretical background to README
+* 28/11/2021 (Lin): Implement offset initialization for RepPoints paper
 
 </details>
 
