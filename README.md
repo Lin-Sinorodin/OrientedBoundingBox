@@ -12,6 +12,7 @@
 * 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper.
 * 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5).
 * 25/11/2021 (Lin): Refactor the backbone code
+* 28/11/2021 (Lin): Add theoretical background to README
 
 </details>
 
@@ -46,6 +47,20 @@
    ├─ setup.cfg
    └─ setup.py
 ```
+</details>
+
+
+<details>
+  <summary><b> Theoretical Background </b></summary>
+
+| Paper 	| Implementation  	| About 	|
+|------	    |:----------------: |---------	|
+| [ReDet: A Rotation-equivariant Detector for Aerial Object Detection](https://arxiv.org/abs/2103.07733) | [Official](https://github.com/csuhan/ReDet) | |
+| [RepPoints: Point Set Representation for Object Detection](https://arxiv.org/abs/1904.11490) | [Official](https://github.com/microsoft/RepPoints) | |
+| [Oriented RepPoints for Aerial Object Detection](https://arxiv.org/abs/2105.11111) | [Official](https://github.com/LiWentomng/OrientedRepPoints), [w. Swin Transformer](https://github.com/hukaixuan19970627/OrientedRepPoints_DOTA) | |
+| [FCOSR: A Simple Anchor-free Rotated Detector for Aerial Object Detection](https://arxiv.org/abs/2111.10780) | [Official](https://github.com/lzh420202/fcosr) | |
+| [A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection](https://arxiv.org/abs/2109.12848) | [Official](https://github.com/Shank2358/GGHL) | |
+
 </details>
 
 ## DOTAv1.0 Dataset
