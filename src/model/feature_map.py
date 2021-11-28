@@ -124,18 +124,29 @@ class FeatureMap(nn.Module):
             curr_feature = layer(curr_feature)
             prev_features.append(curr_feature if layer.idx in self.remember_layers else None)
 
-        return [feature for feature in prev_features if feature is not None][-self.num_feature_maps:]
+        # add stride information for feature maps
+        feature_maps = []
+        for feature_map in [feature for feature in prev_features if feature is not None][-self.num_feature_maps:]:
+            feature_map.stride = x.shape[-1]//feature_map.shape[-1]
+            feature_maps.append(feature_map)
+
+        return feature_maps
 
 
 if __name__ == '__main__':
-    img_in = torch.rand(1, 3, 160, 160)
+    img_in = torch.rand(1, 3, 256, 256)
     print('\n\t'.join(['Input:', f'{img_in.shape = }']))
 
     feature_map = FeatureMap(BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS)
     P2, P3, P4, P5 = feature_map(img_in)
     print('\n\t'.join([
-        'Output (Feature Maps):', f'{P2.shape = }', f'{P3.shape = }', f'{P4.shape = }', f'{P5.shape = }'
+        'Output (Feature Maps):',
+        f'{P2.shape = }  |  {P2.stride = }',
+        f'{P3.shape = }  |  {P3.stride = }',
+        f'{P4.shape = }  |  {P4.stride = }',
+        f'{P5.shape = }  |  {P5.stride = }'
     ]))
+
 
     total_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters()])
     trainable_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters() if p.requires_grad])
@@ -143,12 +154,12 @@ if __name__ == '__main__':
 
     """
     Input:
-        img_in.shape = torch.Size([1, 3, 160, 160])
+        img_in.shape = torch.Size([1, 3, 256, 256])
     Output (Feature Maps):
-        P2.shape = torch.Size([1, 128, 40, 40])
-        P3.shape = torch.Size([1, 256, 20, 20])
-        P4.shape = torch.Size([1, 512, 10, 10])
-        P5.shape = torch.Size([1, 1024, 5, 5])
+        P2.shape = torch.Size([1, 128, 64, 64])  |  P2.stride = 4
+        P3.shape = torch.Size([1, 256, 32, 32])  |  P3.stride = 8
+        P4.shape = torch.Size([1, 512, 16, 16])  |  P4.stride = 16
+        P5.shape = torch.Size([1, 1024, 8, 8])  |  P5.stride = 32
     Model parameters:
         total_parameters = 129057152
         trainable_parameters = 129057152
