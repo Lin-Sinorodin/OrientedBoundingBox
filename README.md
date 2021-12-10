@@ -61,6 +61,7 @@
 | [Oriented RepPoints for Aerial Object Detection](https://arxiv.org/abs/2105.11111) | [Official](https://github.com/LiWentomng/OrientedRepPoints), [w. Swin Transformer](https://github.com/hukaixuan19970627/OrientedRepPoints_DOTA) | |
 | [FCOSR: A Simple Anchor-free Rotated Detector for Aerial Object Detection](https://arxiv.org/abs/2111.10780) | [Official](https://github.com/lzh420202/fcosr) | |
 | [A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection](https://arxiv.org/abs/2109.12848) | [Official](https://github.com/Shank2358/GGHL) | |
+| [Boosting object detection performance through ensembling on satellite imagery](https://medium.com/earthcube-stories/boosting-object-detection-performance-through-ensembling-on-satellite-imagery-949e891dfb28) | | |
 
 </details>
 
