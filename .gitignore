@@ -1,3 +1,5 @@
-/DOTA/
-/.idea/
-src/obb.egg-info/
+DOTA
+.idea
+src/obb.egg-info
+src/model/__pycache__
+src/utils/__pycache__
