@@ -145,7 +145,7 @@ class Dataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    train_dataset = Dataset(path='../../DOTA_sample_data/train')
+    train_dataset = Dataset(path='../../assets/DOTA_sample_data/train')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 
     # get one sample
