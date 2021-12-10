@@ -1,4 +1,8 @@
 torch>=1.7.0
-numpy>=1.21.2
-gdown>=4.2.0
-matplotlib>=3.4.3
+numpy
+gdown
+matplotlib
+einops
+torchvision
+opencv-python
+setuptools
