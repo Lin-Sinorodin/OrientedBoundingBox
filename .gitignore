@@ -1,5 +1,5 @@
 DOTA
 .idea
 src/obb.egg-info
-src/model/__pycache__
-src/utils/__pycache__
+src/obb/model/__pycache__
+src/obb/utils/__pycache__

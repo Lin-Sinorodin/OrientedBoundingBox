@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.model import common
+from obb.model import common
 
 
 BACKBONE = [

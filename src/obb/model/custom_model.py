@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.model.feature_map import FeatureMap, BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS
+from obb.model.feature_map import FeatureMap, BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS
 
 
 class DetectionModel(nn.Module):

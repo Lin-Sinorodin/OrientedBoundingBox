@@ -1,5 +1,5 @@
 import torch
-from model.oriented_reppoints import OrientedRepPointsHead
+from obb.model.oriented_reppoints import OrientedRepPointsHead
 
 
 def test_OrientedRepPointsHead():

@@ -105,7 +105,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
 * __Option 1__: Download the dataset manually from the [DOTA website](https://captain-whu.github.io/DOTA/dataset.html).
 * __Option 2__: (recommended) Download the dataset using the following code:
     ```python
-    from src.utils import DatasetDownloader
+    from obb.utils import DatasetDownloader
     
     dataset_downloader = DatasetDownloader(path='example')
     dataset_downloader.download_data_from_drive()
@@ -121,7 +121,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
     import numpy as np
     from torch.utils.data import DataLoader
   
-    from src.utils import Dataset, plot_obb
+    from obb.utils import Dataset, plot_obb
     
     train_dataset = Dataset(path='assets/DOTA_sample_data/train')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
