@@ -11,6 +11,3 @@ def plot_obb(img, obb):
 
     axes.axis('off')
     plt.show()
-
-
-

@@ -147,7 +147,6 @@ if __name__ == '__main__':
         f'{P5.shape = }  |  {P5.stride = }'
     ]))
 
-
     total_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters()])
     trainable_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters() if p.requires_grad])
     print('\n\t'.join(['Model parameters:', f'{total_parameters = }', f'{trainable_parameters = }']))

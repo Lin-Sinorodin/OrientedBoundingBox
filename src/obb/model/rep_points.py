@@ -77,15 +77,15 @@ if __name__ == '__main__':
     feature map shape: torch.Size([1, 128, 64, 64])
     center points shape: torch.Size([4096, 2])
     offsets shape: torch.Size([4096, 9, 2])
-    
+
     feature map shape: torch.Size([1, 256, 32, 32])
     center points shape: torch.Size([1024, 2])
     offsets shape: torch.Size([1024, 9, 2])
-    
+
     feature map shape: torch.Size([1, 512, 16, 16])
     center points shape: torch.Size([256, 2])
     offsets shape: torch.Size([256, 9, 2])
-    
+
     feature map shape: torch.Size([1, 1024, 8, 8])
     center points shape: torch.Size([64, 2])
     offsets shape: torch.Size([64, 9, 2])
