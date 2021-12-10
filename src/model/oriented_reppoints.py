@@ -30,6 +30,17 @@ def initialize_rep_points(feature_map_size: tuple[int, int]) -> torch.tensor:
     return rep_points_init + points_offset
 
 
+def rep_point_to_img_space(feature_space_tensor: torch.tensor, stride: int) -> torch.tensor:
+    """
+    Converts rep point tensor from feature space (of a feature map with a given stride) to the image space.
+
+    :param feature_space_tensor: the tensor in feature space to be converted to image space
+    :param stride: the stride of the current feature map is the scale between feature space and image space
+    :return: the input tensor in the image space
+    """
+    return torch.tensor([stride]).reshape(1, -1, 1, 1) * feature_space_tensor
+
+
 class OrientedRepPointsHead(nn.Module):
     def __init__(self, num_offsets: int = 9, num_classes: int = 15):
         super().__init__()
@@ -87,9 +98,15 @@ if __name__ == "__main__":
     rotated_RepPoints_head = OrientedRepPointsHead()
 
     for name, feature_map in feature_maps.items():
+        stride = strides[name]
         rep_points1_, rep_points2_, classification_ = rotated_RepPoints_head(feature_map)
+
+        # convert rep points to image space in order to calculate the losses
+        rep_points1_ = rep_point_to_img_space(rep_points1_, stride)
+        rep_points2_ = rep_point_to_img_space(rep_points2_, stride)
+
         print('\n\t'.join([
-            f'\nfeature map {name} with stride = {strides[name]}:',
+            f'\nfeature map {name} with {stride = }:',
             f'{feature_map.shape = }',
             f'{rep_points1_.shape = }',
             f'{rep_points2_.shape = }',
