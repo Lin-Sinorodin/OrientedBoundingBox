@@ -1,4 +1,11 @@
-# OrientedBoundingBox
+# Oriented Object Detection on Satellite Images
+
+<div align="center">
+
+[![Tests](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml/badge.svg)](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml)
+[![CodeFactor](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox/badge)](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox)
+
+</div>
 
 
 <details>
@@ -14,6 +21,8 @@
 * 25/11/2021 (Lin): Refactor the backbone code
 * 28/11/2021 (Lin): Add theoretical background to README
 * 28/11/2021 (Lin): Implement offset initialization for RepPoints paper
+* 10/12/2021 (Lin): Implement head architecture for RepPoints paper
+* 10/12/2021 (Lin): Add automatic testing with GitHub actions
 
 </details>
 
