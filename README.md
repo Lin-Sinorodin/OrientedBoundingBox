@@ -1,4 +1,4 @@
-# Oriented Object Detection on Satellite Images
+<h1 align="center">Oriented Object Detection on Satellite Images</h1>
 
 <div align="center">
 
