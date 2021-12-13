@@ -3,6 +3,8 @@ import torch.nn as nn
 from einops import rearrange, repeat
 from torchvision.ops import DeformConv2d
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 def initialize_rep_points_centers(feature_map_size: tuple[int, int]) -> torch.tensor:
     """
@@ -13,7 +15,7 @@ def initialize_rep_points_centers(feature_map_size: tuple[int, int]) -> torch.te
              is (y, x) point in feature map coordinates.
     """
     h, w = feature_map_size
-    grid_y, grid_x = torch.meshgrid(torch.arange(0., h), torch.arange(0., w))
+    grid_y, grid_x = torch.meshgrid(torch.arange(0., h), torch.arange(0., w), indexing='ij')
     return rearrange(torch.stack([grid_y, grid_x], dim=-1), 'h w yx -> 1 yx h w')
 
 
@@ -25,9 +27,9 @@ def initialize_rep_points(feature_map_size: tuple[int, int]) -> torch.tensor:
     :return: tensor of center points with shape [batch, 2 * num_offsets, height, width].
     """
     points_center = initialize_rep_points_centers(feature_map_size)
-    points_offset = torch.stack(torch.meshgrid([torch.tensor([-1, 0, 1])]*2), dim=-1).reshape(1, -1, 1, 1)
+    points_offset = torch.stack(torch.meshgrid([torch.tensor([-1, 0, 1])] * 2, indexing='ij'), dim=-1)
     rep_points_init = repeat(points_center, '1 xy h w -> 1 (repeat xy) h w', repeat=9)
-    return rep_points_init + points_offset
+    return rep_points_init + points_offset.reshape(1, -1, 1, 1)
 
 
 def rep_point_to_img_space(feature_space_tensor: torch.tensor, stride: int) -> torch.tensor:
@@ -95,7 +97,7 @@ if __name__ == "__main__":
     strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
     feature_maps = {name: torch.rand(1, 256, img_h // stride, img_w // stride) for name, stride in strides.items()}
 
-    rotated_RepPoints_head = OrientedRepPointsHead()
+    rotated_RepPoints_head = OrientedRepPointsHead().to(device)
 
     for name, feature_map in feature_maps.items():
         stride = strides[name]
@@ -112,3 +114,29 @@ if __name__ == "__main__":
             f'{rep_points2_.shape = }',
             f'{classification_.shape = }'
         ]))
+
+    """
+    feature map P2 with stride = 4:
+        feature_map.shape = torch.Size([1, 256, 128, 128])
+        rep_points1_.shape = torch.Size([1, 18, 128, 128])
+        rep_points2_.shape = torch.Size([1, 18, 128, 128])
+        classification_.shape = torch.Size([1, 15, 128, 128])
+    
+    feature map P3 with stride = 8:
+        feature_map.shape = torch.Size([1, 256, 64, 64])
+        rep_points1_.shape = torch.Size([1, 18, 64, 64])
+        rep_points2_.shape = torch.Size([1, 18, 64, 64])
+        classification_.shape = torch.Size([1, 15, 64, 64])
+    
+    feature map P4 with stride = 16:
+        feature_map.shape = torch.Size([1, 256, 32, 32])
+        rep_points1_.shape = torch.Size([1, 18, 32, 32])
+        rep_points2_.shape = torch.Size([1, 18, 32, 32])
+        classification_.shape = torch.Size([1, 15, 32, 32])
+    
+    feature map P5 with stride = 32:
+        feature_map.shape = torch.Size([1, 256, 16, 16])
+        rep_points1_.shape = torch.Size([1, 18, 16, 16])
+        rep_points2_.shape = torch.Size([1, 18, 16, 16])
+        classification_.shape = torch.Size([1, 15, 16, 16])
+    """
