@@ -23,7 +23,7 @@
 * 28/11/2021 (Lin): Implement offset initialization for RepPoints paper
 * 10/12/2021 (Lin): Implement head architecture for RepPoints paper
 * 10/12/2021 (Lin): Add automatic testing with GitHub actions
-* 14/12/2021 (Matan): Add convex hull functionality
+* 14/12/2021 (Matan): Add convex hull and minimum bounding rectangle functionality
 
 </details>
 
