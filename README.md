@@ -18,12 +18,10 @@
 * 22/10/2021 (Lin): Add code for 2d Gaussian for rotated bbox.
 * 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper.
 * 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5).
-* 25/11/2021 (Lin): Refactor the backbone code
-* 28/11/2021 (Lin): Add theoretical background to README
 * 28/11/2021 (Lin): Implement offset initialization for RepPoints paper
 * 10/12/2021 (Lin): Implement head architecture for RepPoints paper
 * 10/12/2021 (Lin): Add automatic testing with GitHub actions
-* 14/12/2021 (Matan): Add convex hull and minimum bounding rectangle functionality
+* 14/12/2021 (Matan): Add convex hull and minimum bounding rectangle functionality (see [notebook](https://github.com/Lin-Sinorodin/OrientedBoundingBox/blob/main/notebooks/bbox.ipynb))
 
 </details>
 
@@ -44,12 +42,15 @@
    ├─ src
    │  ├─ model
    │  │  ├─ common.py
-   │  │  ├─ dataset.py
+   │  │  ├─ custom_model.py
    │  │  ├─ feature_map.py
    │  │  ├─ gghl.py
+   │  │  ├─ oriented_reppoints.py
+   │  │  ├─ rep_points.py
    │  │  └─ yolov5.py
    │  └─ utils
-   │     ├─ data.py
+   │     ├─ box_ops.py
+   │     ├─ dataset.py
    │     ├─ gaussian.py
    │     └─ visualize.py
    ├─ pyproject.toml
