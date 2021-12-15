@@ -11,17 +11,18 @@
 <details>
   <summary><b> Progress Log </b></summary>
   
-* 17/10/2021 (Lin): Write script for downloading DODAv1.0 dataset.
-* 18/10/2021 (Lin): Create a Pytorch `Dataset` and `DataLoader` for DOTA dataset.
-* 18/10/2021 (Lin): Add sample data and obb visualization for the data.
-* 21/10/2021 (Lin): Add YOLOv5 for Backbone and Neck feature extraction.
-* 22/10/2021 (Lin): Add code for 2d Gaussian for rotated bbox.
-* 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper.
-* 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5).
+* 17/10/2021 (Lin): Write script for downloading DODAv1.0 dataset
+* 18/10/2021 (Lin): Create a Pytorch `Dataset` and `DataLoader` for DOTA dataset
+* 18/10/2021 (Lin): Add sample data and obb visualization for the data
+* 21/10/2021 (Lin): Add YOLOv5 for Backbone and Neck feature extraction
+* 22/10/2021 (Lin): Add code for 2d Gaussian for rotated bbox
+* 22/10/2021 (Lin): Implement OLA from _'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'_ paper
+* 20/11/2021 (Lin): Implement custom _Feature Map_ (backbone+neck based on YOLOv5 and TPH-YOLOv5)
 * 28/11/2021 (Lin): Implement offset initialization for RepPoints paper
 * 10/12/2021 (Lin): Implement head architecture for RepPoints paper
 * 10/12/2021 (Lin): Add automatic testing with GitHub actions
 * 14/12/2021 (Matan): Add convex hull and minimum bounding rectangle functionality (see [notebook](https://github.com/Lin-Sinorodin/OrientedBoundingBox/blob/main/notebooks/bbox.ipynb))
+* 15/12/2021 (Lin): combine oriented rep points head with backbone and neck
 
 </details>
 
