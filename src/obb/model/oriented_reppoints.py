@@ -8,28 +8,30 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def initialize_rep_points_centers(feature_map_size: tuple[int, int]) -> torch.tensor:
     """
-    Initialize (y, x) center points for a given feature map (feature map coordinates).
+    Initialize (x, y) center points for a given feature map (feature map coordinates).
 
     :param feature_map_size: (height, width) tuple of the feature map.
     :return: tensor of center points with shape [batch, 2, height, width], each center
-             is (y, x) point in feature map coordinates.
+             is (x, y) point in feature map coordinates.
     """
     h, w = feature_map_size
-    grid_y, grid_x = torch.meshgrid(torch.arange(0., h), torch.arange(0., w))
-    return rearrange(torch.stack([grid_y, grid_x], dim=-1), 'h w yx -> 1 yx h w')
+    grid_x, grid_y = torch.meshgrid(torch.arange(0., w), torch.arange(0., h))
+    return rearrange(torch.stack([grid_x, grid_y], dim=-1), 'w h xy -> 1 xy w h')
 
 
 def initialize_rep_points(feature_map_size: tuple[int, int]) -> torch.tensor:
     """
     Initialize [num_points * (x, y)] rep points for a given feature map. (feature map coordinates)
 
+    Note: the values are clamped between 0 and max(w, h) so this function currently works for images with w=h.
+
     :param feature_map_size: (height, width) tuple of the feature map.
     :return: tensor of center points with shape [batch, 2 * num_offsets, height, width].
     """
     points_center = initialize_rep_points_centers(feature_map_size)
     points_offset = torch.stack(torch.meshgrid([torch.tensor([-1, 0, 1])] * 2), dim=-1).reshape(1, -1, 1, 1)
-    rep_points_init = repeat(points_center, '1 xy h w -> 1 (repeat xy) h w', repeat=9)
-    return rep_points_init + points_offset
+    rep_points_init = repeat(points_center, '1 xy h w -> 1 (repeat xy) h w', repeat=9) + points_offset
+    return torch.clamp(rep_points_init, min=0, max=max(feature_map_size))
 
 
 def rep_point_to_img_space(feature_space_tensor: torch.tensor, stride: int) -> torch.tensor:
@@ -47,6 +49,7 @@ class OrientedRepPointsHead(nn.Module):
     def __init__(self, num_offsets: int = 9, num_classes: int = 15):
         super().__init__()
         self.conv_params = {'kernel_size': (3, 3), 'stride': (1, 1), 'padding': 1, 'bias': False}
+        self.relu = nn.ReLU(inplace=True)
 
         # classification subnet
         self.classification_conv = self._get_features_subnet()
@@ -73,29 +76,33 @@ class OrientedRepPointsHead(nn.Module):
     def forward(self, feature: torch.tensor):
         # get offsets
         localization_features = self.localization_conv(feature)
-        offset1 = self.points_init_offset_conv(self.points_init_conv(localization_features))
+        offset1 = self.points_init_offset_conv(
+            self.relu(self.points_init_conv(localization_features))
+        )
         offset2 = self.points_refine_offset_conv(
-            self.points_refine_deform_conv(input=localization_features, offset=offset1)
+            self.relu(self.points_refine_deform_conv(input=localization_features, offset=offset1))
         )
 
         # get points classification
         classification_features = self.classification_conv(feature)
         classification = self.classification_conv_out(
-            self.classification_deform_conv(input=classification_features, offset=offset1)
+            self.relu(self.classification_deform_conv(input=classification_features, offset=offset1))
         )
 
         # get rep points
-        rep_points_init = initialize_rep_points(feature_map_size=tuple(feature.shape[2:4]))
-        rep_points1 = rep_points_init + offset1
-        rep_points2 = rep_points1 + offset2
+        rep_points_init = offset1 + initialize_rep_points(feature_map_size=tuple(feature.shape[2:4]))
+        rep_points_refine = offset2 + rep_points_init
 
-        return rep_points1, rep_points2, classification
+        return rep_points_init, rep_points_refine, classification
 
 
 if __name__ == "__main__":
     img_h, img_w = (512, 512)
+    batch_size = 2
+    features_per_map = 256
     strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
-    feature_maps = {name: torch.rand(1, 256, img_h // stride, img_w // stride) for name, stride in strides.items()}
+    feature_maps = {name: torch.rand(batch_size, features_per_map, img_h // stride, img_w // stride)
+                    for name, stride in strides.items()}
 
     rotated_RepPoints_head = OrientedRepPointsHead().to(device)
 
