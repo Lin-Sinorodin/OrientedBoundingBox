@@ -35,8 +35,8 @@ NECK = [
     ['Conv', {'channel_out': 128, 'kernel_size': 1, 'stride': 1}],                # 20
     ['nn.Upsample', {'scale_factor': 2, 'mode': 'nearest'}],
     ['Concat', {'layer_idx': 2}],   # cat backbone P2
-    ['CSP3Transformer', {'channel_out': 128, 'number': 1, 'shortcut': False}],    # 23
-    ['ConvMixer', {'dim': 128, 'depth': 1, 'kernel_size': 7}],
+    ['CSP3Transformer', {'channel_out': 256, 'number': 1, 'shortcut': False}],    # 23
+    ['ConvMixer', {'dim': 256, 'depth': 1, 'kernel_size': 7}],
 
     # pyramid down
     ['Conv', {'channel_out': 128, 'kernel_size': 3, 'stride': 2}],                # 25
@@ -46,12 +46,12 @@ NECK = [
 
     ['Conv', {'channel_out': 256, 'kernel_size': 3, 'stride': 2}],
     ['Concat', {'layer_idx': 15}],  # cat backbone P2
-    ['CSP3Transformer', {'channel_out': 512, 'number': 2, 'shortcut': False}],    # 31
-    ['ConvMixer', {'dim': 512, 'depth': 1, 'kernel_size': 7}],
+    ['CSP3Transformer', {'channel_out': 256, 'number': 2, 'shortcut': False}],    # 31
+    ['ConvMixer', {'dim': 256, 'depth': 1, 'kernel_size': 7}],
 
     ['Conv', {'channel_out': 512, 'kernel_size': 3, 'stride': 2}],
     ['Concat', {'layer_idx': 10}],  # cat backbone P2
-    ['CSP3Transformer', {'channel_out': 1024, 'number': 3, 'shortcut': False}],   # 35
+    ['CSP3Transformer', {'channel_out': 256, 'number': 3, 'shortcut': False}],   # 35
 ]
 
 REMEMBER_LAYERS = [2, 4, 6, 10, 15, 20, 23, 27, 31, 35]
@@ -134,7 +134,7 @@ class FeatureMap(nn.Module):
 
 
 if __name__ == '__main__':
-    img_in = torch.rand(1, 3, 256, 256)
+    img_in = torch.rand(2, 3, 256, 256)
     print('\n\t'.join(['Input:', f'{img_in.shape = }']))
 
     feature_map = FeatureMap(BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS)
@@ -149,7 +149,7 @@ if __name__ == '__main__':
 
     total_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters()])
     trainable_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters() if p.requires_grad])
-    print('\n\t'.join(['Model parameters:', f'{total_parameters = }', f'{trainable_parameters = }']))
+    print('\n\t'.join(['Model parameters:', f'{total_parameters = :,}', f'{trainable_parameters = :,}']))
 
     """
     Input:
