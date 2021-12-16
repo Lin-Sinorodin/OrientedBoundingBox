@@ -2,8 +2,12 @@
 
 <div align="center">
 
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)
+
 [![Tests](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml/badge.svg)](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml)
 [![CodeFactor](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox/badge)](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox)
+[![PEP8](https://img.shields.io/badge/code%20style-pep8-orange.svg)](https://www.python.org/dev/peps/pep-0008/)
 
 </div>
 
@@ -112,7 +116,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
 ```
 </details>
 
-<details open>
+<details>
   <summary><b> How to get the dataset? </b></summary>
 
 * __Option 1__: Download the dataset manually from the [DOTA website](https://captain-whu.github.io/DOTA/dataset.html).
@@ -126,7 +130,7 @@ x1, y1, x2, y2, x3, y3, x4, y4, category, difficult
 
 </details>
 
-<details open>
+<details>
   <summary><b> Use the Data </b></summary>
 
 * Get a Pytorch `DataLoader`:
