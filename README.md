@@ -80,6 +80,9 @@
 | [Learning High-Precision Bounding Box for Rotated Object Detection via Kullback-Leibler Divergence](https://arxiv.org/abs/2106.01883) | [Official](https://github.com/yangxue0827/RotationDetection) | |
 | [Boosting object detection performance through ensembling on satellite imagery](https://medium.com/earthcube-stories/boosting-object-detection-performance-through-ensembling-on-satellite-imagery-949e891dfb28) | | |
 
+* [Oriented Bounding Boxes for Small and Freely Rotated Objects](https://arxiv.org/pdf/2104.11854.pdf) - contains nice 
+  figures demonstrates how the backbone and neck (multi-scale feature pyramid) works
+
 </details>
 
 ## DOTAv1.0 Dataset
