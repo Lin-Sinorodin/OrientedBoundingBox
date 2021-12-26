@@ -4,6 +4,8 @@ from einops import rearrange
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.loss import FocalLoss
+from obb.utils.box_ops import convex_hull
+from obb.utils.poly_intersection import PolygonClipper, polygon_area
 
 
 class OBBPointAssigner:
@@ -134,9 +136,18 @@ class OrientedRepPointsLoss(nn.Module):
         self.strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
         self.feature_maps_names = list(self.strides.keys())
 
-        self.init_assigner = OBBPointAssigner()
+        # balance parameters between components of the loss. values from oriented rep points config file.
+        self.init_localization_weight = 0.3
+        self.refine_localization_weight = 1.
+        self.init_spatial_constraint_weight = 0.05
+        self.refine_spatial_constraint_weight = 0.1
 
-    def process_data(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
+        self.classification_loss_metric = FocalLoss(gamma=2, alpha=0.25)
+
+        self.init_assigner = OBBPointAssigner()
+        self.refine_assigner = ...  # TODO
+
+    def _process_data(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
         multi_level_rep_points_init = {}
         multi_level_rep_points_refine = {}
         multi_level_classification = {}
@@ -169,9 +180,54 @@ class OrientedRepPointsLoss(nn.Module):
 
         return rep_points_init, rep_points_refine, classification, centers_init, multi_level_centers_refine
 
-    def assign_init(self, center_points, gt_obboxes, gt_labels):
+    def _assign_init(self, center_points, gt_obboxes, gt_labels):
         assigned_gt_idxs, assigned_labels = self.init_assigner.assign(center_points, gt_obboxes, gt_labels)
         return assigned_gt_idxs, assigned_labels
+
+    def _initialization_step_loss(self, rep_points_init, centers_init, gt_obboxes, gt_labels):
+        # initialization stage assigner
+        assigned_gt_idxs_init, assigned_labels_init = self._assign_init(centers_init, gt_obboxes, gt_labels)
+        positive_samples_idx_init = torch.where(assigned_labels_init > 0)
+        positive_rep_points_init = rep_points_init[positive_samples_idx_init]
+
+        # initialize losses with 0
+        localization_loss = torch.zeros(1).float()
+        spatial_constraint_loss = torch.zeros(1).float()  # TODO
+
+        # iterate over positive samples and add it's loss to the total loss
+        for i, points in enumerate(positive_rep_points_init):
+            curr_rep_points = points.reshape(-1, 2).unsqueeze(dim=0)
+
+            # convex hull of the current rep points
+            hull, hull_size = convex_hull(curr_rep_points)
+            hull_points = hull[:, :int(hull_size[0]), :].squeeze(dim=0)
+
+            # ground truth obb for the current rep points
+            gt_points = gt_obboxes[i].reshape(-1, 2).float()
+            gt_points.requires_grad = True
+
+            # calculate IOU for localization loss
+            intersection_points = PolygonClipper()(hull_points, gt_points)
+            poly1_area = polygon_area(hull_points)
+            poly2_area = polygon_area(gt_points)
+            intersection_area = polygon_area(intersection_points)
+            union_area = poly1_area + poly2_area - intersection_area
+            iou = intersection_area / union_area  # TODO convert it to GIoU
+            localization_loss += 1 - iou
+
+            # calculate spatial_constraint_loss
+            # TODO
+
+        return (self.init_localization_weight * localization_loss +
+                self.init_spatial_constraint_weight * spatial_constraint_loss)
+
+    def _refinement_step_loss(self):
+        # initialize losses with 0
+        localization_loss = torch.zeros(1).float()        # TODO
+        spatial_constraint_loss = torch.zeros(1).float()  # TODO
+
+        return (self.refine_localization_weight * localization_loss +
+                self.refine_spatial_constraint_weight * spatial_constraint_loss)
 
     def get_loss(
             self,
@@ -183,39 +239,16 @@ class OrientedRepPointsLoss(nn.Module):
     ):
         """Loss function for Oriented Rep Points"""
         # convert the output of Rep Points head to flattened representation
-        rep_points_init, rep_points_refine, classification, centers_init, multi_level_centers_refine = \
-            self.process_data(raw_rep_points_init, raw_rep_points_refine, raw_classification)
+        rep_points_init, rep_points_refine, classification, centers_init, centers_refine = self._process_data(
+            raw_rep_points_init, raw_rep_points_refine, raw_classification
+        )
 
-        # classification loss
-        focal_loss = FocalLoss()
-        classification_loss = focal_loss(classification, gt_labels)
-
-        # initialization stage assigner
-        assigned_gt_idxs_init, assigned_labels_init = self.assign_init(centers_init, gt_obboxes, gt_labels)
-        positive_samples_idx_init = torch.where(assigned_labels_init > 0)
-
-        # refinement stage assigner
-        # TODO
-
-        # initialization stage localization loss
-        positive_rep_points_init = rep_points_init[positive_samples_idx_init]
-        localization_loss_init = 0  # TODO
-
-        # refinement stage localization loss
-        localization_loss_refine = 0  # TODO
-
-        # initialization stage spatial constraint loss
-        spatial_constraint_loss_init = 0  # TODO
-
-        # refinement stage spatial constraint loss
-        spatial_constraint_loss_refine = 0  # TODO
+        classification_loss = self.classification_loss_metric(classification, gt_labels)
+        initialization_loss = self._initialization_step_loss(rep_points_init, centers_init, gt_obboxes, gt_labels)
+        refinement_loss = self._refinement_step_loss()
 
         # calc total loss
-        total_loss = (classification_loss +
-                      localization_loss_init +
-                      localization_loss_refine +
-                      spatial_constraint_loss_init +
-                      spatial_constraint_loss_refine)
+        total_loss = (classification_loss + initialization_loss + refinement_loss)
 
         return total_loss
 
