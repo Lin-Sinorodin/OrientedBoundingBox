@@ -9,7 +9,7 @@ class FocalLoss(nn.Module):
     def __init__(self, gamma=0, alpha=None, size_average=True):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
-        self.alpha = alpha
+        self.alpha = alpha if alpha is not None else 1
         self.size_average = size_average
 
         if isinstance(alpha, (float, int)):
@@ -21,12 +21,5 @@ class FocalLoss(nn.Module):
         target = target.view(-1, 1)
         logpt = F.log_softmax(input).gather(1, target).view(-1)
         pt = Variable(logpt.data.exp())
-
-        if self.alpha is not None:
-            if self.alpha.type() != input.data.type():
-                self.alpha = self.alpha.type_as(input.data)
-            at = self.alpha.gather(0, target.data.view(-1))
-            logpt = logpt * Variable(at)
-
-        loss = -1 * (1-pt)**self.gamma * logpt
+        loss = - self.alpha * (1 - pt) ** self.gamma * logpt
         return loss.mean() if self.size_average else loss.sum()
