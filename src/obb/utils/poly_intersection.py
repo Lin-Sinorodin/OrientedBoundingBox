@@ -76,11 +76,19 @@ class PolygonClipper:
 
         return intersection
 
-    def clip(self, subject_polygon, clipping_polygon):
-        # it is assumed that requires_grad = True only for clipping_polygon.
-        # subject_polygon and clipping_polygon are N x 2 and M x 2 torch tensors respectively
+    def clip(self, gt_polygon, clipping_polygon):
+        """
+        Find the intersection polygon between gt_polygon and clipping_polygon
 
-        final_polygon = torch.clone(subject_polygon)
+        Note: it is assumed that requires_grad = True only for clipping_polygon.
+
+        :param gt_polygon: Nx2 tensor with vertices of the ground truth polygon
+        :param clipping_polygon: Mx2 tensor with vertices of the other polygon
+        :return: Kx2 tensor with vertices of the intersection polygon
+        """
+        device = clipping_polygon.device
+
+        final_polygon = torch.clone(gt_polygon)
         for i in range(len(clipping_polygon)):
             # stores the vertices of the next iteration of the clipping procedure
             # final_polygon consists of list of 1 x 2 tensors
@@ -88,7 +96,7 @@ class PolygonClipper:
 
             # stores the vertices of the final clipped polygon. This will be
             # a K x 2 tensor, so need to initialize shape to match this
-            final_polygon = torch.empty((0, 2))
+            final_polygon = torch.empty((0, 2), device=device)
 
             # these two vertices define a line segment (edge) in the clipping polygon.
             # It is assumed that indices wrap around, such that if i = 0, then i - 1 = M.
@@ -109,15 +117,11 @@ class PolygonClipper:
                     intersection = self.compute_intersection(s_edge_start, s_edge_end, c_edge_start, c_edge_end)
                     final_polygon = torch.cat((final_polygon, intersection), dim=0)
 
-        return final_polygon
-
-    def __call__(self, A, B):
-        clipped_polygon = self.clip(A, B)
-        if len(clipped_polygon) == 0 and self.warn_if_empty:
+        if len(final_polygon) == 0 and self.warn_if_empty:
             warnings.warn("No intersections found. Are you sure your \
                           polygon coordinates are in clockwise order?")
 
-        return clipped_polygon
+        return final_polygon
 
 
 def polygon_area(pts: torch.Tensor) -> torch.Tensor:

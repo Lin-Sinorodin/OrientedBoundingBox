@@ -206,7 +206,7 @@ class OrientedRepPointsLoss(nn.Module):
             gt_points.requires_grad = True
 
             # calculate IOU for localization loss
-            intersection_points = PolygonClipper()(hull_points, gt_points)
+            intersection_points = PolygonClipper().clip(gt_points, hull_points)
             poly1_area = polygon_area(hull_points)
             poly2_area = polygon_area(gt_points)
             intersection_area = polygon_area(intersection_points)
