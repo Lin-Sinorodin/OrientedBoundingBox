@@ -6,6 +6,7 @@ from obb.model.custom_model import DetectionModel
 from obb.utils.loss import FocalLoss
 from obb.utils.box_ops import convex_hull
 from obb.utils.poly_intersection import PolygonClipper, polygon_area
+from typing import Dict
 
 
 class OBBPointAssigner:
@@ -46,7 +47,7 @@ class OBBPointAssigner:
                 (ii) the distance between this point and the gt is smaller than other gt bboxes
         Args:
             points (Tensor): points to be assigned, shape(n, 3) while last dimension stands for (x, y, stride).
-            gt_oboxes (Tensor): Groundtruth oriented boxes, shape (k, 8).
+            gt_obboxes (Tensor): groundtruth oriented boxes, shape (k, 8).
             gt_labels (Tensor, optional): Label of gt_bboxes, shape (k, ).
         Returns:
             :obj:`AssignResult`: The assign results.
@@ -130,10 +131,10 @@ class OBBPointAssigner:
 
 
 class OrientedRepPointsLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, strides):
         super().__init__()
 
-        self.strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
+        self.strides = strides
         self.feature_maps_names = list(self.strides.keys())
 
         # balance parameters between components of the loss. values from oriented rep points config file.
@@ -180,13 +181,9 @@ class OrientedRepPointsLoss(nn.Module):
 
         return rep_points_init, rep_points_refine, classification, centers_init, multi_level_centers_refine
 
-    def _assign_init(self, center_points, gt_obboxes, gt_labels):
-        assigned_gt_idxs, assigned_labels = self.init_assigner.assign(center_points, gt_obboxes, gt_labels)
-        return assigned_gt_idxs, assigned_labels
-
     def _initialization_step_loss(self, rep_points_init, centers_init, gt_obboxes, gt_labels):
         # initialization stage assigner
-        assigned_gt_idxs_init, assigned_labels_init = self._assign_init(centers_init, gt_obboxes, gt_labels)
+        assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obboxes, gt_labels)
         positive_samples_idx_init = torch.where(assigned_labels_init > 0)
         positive_rep_points_init = rep_points_init[positive_samples_idx_init]
 
@@ -201,6 +198,7 @@ class OrientedRepPointsLoss(nn.Module):
             # convex hull of the current rep points
             hull, hull_size = convex_hull(curr_rep_points)
             hull_points = hull[:, :int(hull_size[0]), :].squeeze(dim=0)
+            hull_points = torch.flip(hull_points, [0])  # counterclockwise -> clockwise
 
             # ground truth obb for the current rep points
             gt_points = gt_obboxes[i].reshape(-1, 2).float()
@@ -231,9 +229,9 @@ class OrientedRepPointsLoss(nn.Module):
 
     def get_loss(
             self,
-            raw_rep_points_init: dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
-            raw_rep_points_refine: dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
-            raw_classification: dict[str, torch.Tensor],  # {'P2': shape[b cls w h], ...}
+            raw_rep_points_init: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
+            raw_rep_points_refine: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
+            raw_classification: Dict[str, torch.Tensor],  # {'P2': shape[b cls w h], ...}
             gt_obboxes: torch.Tensor,  # [[x1, y1, x2, y2, x3, y3, x4, y4], [...]]
             gt_labels: torch.Tensor  # [bbox1_cls, bbox2_cls, ...]
     ):
@@ -247,10 +245,7 @@ class OrientedRepPointsLoss(nn.Module):
         initialization_loss = self._initialization_step_loss(rep_points_init, centers_init, gt_obboxes, gt_labels)
         refinement_loss = self._refinement_step_loss()
 
-        # calc total loss
-        total_loss = (classification_loss + initialization_loss + refinement_loss)
-
-        return total_loss
+        return classification_loss + initialization_loss + refinement_loss
 
 
 if __name__ == '__main__':
@@ -264,6 +259,6 @@ if __name__ == '__main__':
 
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
-    rep_points_loss = OrientedRepPointsLoss()
+    rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
     loss = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
     print(loss)

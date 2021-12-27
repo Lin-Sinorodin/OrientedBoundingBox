@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from torchvision.ops import DeformConv2d
+from typing import Tuple
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def initialize_rep_points_centers(feature_map_size: tuple[int, int]) -> torch.tensor:
+def initialize_rep_points_centers(feature_map_size: Tuple[int, int]) -> torch.tensor:
     """
     Initialize (x, y) center points for a given feature map (feature map coordinates).
 
@@ -19,7 +20,7 @@ def initialize_rep_points_centers(feature_map_size: tuple[int, int]) -> torch.te
     return rearrange(torch.stack([grid_x, grid_y], dim=-1), 'w h xy -> 1 xy w h')
 
 
-def initialize_rep_points(feature_map_size: tuple[int, int]) -> torch.tensor:
+def initialize_rep_points(feature_map_size: Tuple[int, int]) -> torch.tensor:
     """
     Initialize [num_points * (x, y)] rep points for a given feature map. (feature map coordinates)
 
@@ -115,11 +116,11 @@ if __name__ == "__main__":
         rep_points2_ = rep_point_to_img_space(rep_points2_, stride)
 
         print('\n\t'.join([
-            f'\nfeature map {name} with {stride = }:',
-            f'{feature_map.shape = }',
-            f'{rep_points1_.shape = }',
-            f'{rep_points2_.shape = }',
-            f'{classification_.shape = }'
+            f'\nfeature map {name} with stride = {stride}:',
+            f'feature_map.shape = {feature_map.shape}',
+            f'rep_points1_.shape = {rep_points1_.shape}',
+            f'rep_points2_.shape = {rep_points2_.shape}',
+            f'classification_.shape = {classification_.shape}'
         ]))
 
     """

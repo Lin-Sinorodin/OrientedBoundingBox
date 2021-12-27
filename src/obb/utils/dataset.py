@@ -5,6 +5,7 @@ import shutil
 import numpy as np
 import torch
 import torch.utils.data
+from typing import List, Tuple
 
 DOTA_V1_5_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',
@@ -70,11 +71,11 @@ class Label:
         """Convert raw DOTA label to ((x1, y1), (x2, y2), (x3, y3), (x4, y4))"""
         return np.float32(self._dota_raw_label[:, :8])
 
-    def _objects_class_from_raw_label(self) -> list[int]:
+    def _objects_class_from_raw_label(self) -> List[int]:
         """Get objects class idx from raw DOTA label"""
         return [int(DOTA_NAME_TO_INT[name]) for name in self._dota_raw_label[:, 8]]
 
-    def _objects_class_name_from_raw_label(self) -> list[str]:
+    def _objects_class_name_from_raw_label(self) -> List[str]:
         """Get objects class name from raw DOTA label"""
         return [name for name in self._dota_raw_label[:, 8]]
 
@@ -105,7 +106,7 @@ class Dataset(torch.utils.data.Dataset):
         self.images_names, self.labels_names = self._get_matching_image_label()
         self.images_paths, self.labels_paths = self._get_matches_paths()
 
-    def _get_matching_image_label(self) -> tuple[list[str], list[str]]:
+    def _get_matching_image_label(self) -> Tuple[List[str], List[str]]:
         """Find the images that have a proper corresponding label file"""
         images_names = [name.replace('.png', '') for name in os.listdir(self.images_dir)]
         labels_names = [name.replace('.txt', '') for name in os.listdir(self.labels_dir)]
@@ -118,7 +119,7 @@ class Dataset(torch.utils.data.Dataset):
 
         return matching_images_names, matching_labels_names
 
-    def _get_matches_paths(self) -> tuple[list[str], list[str]]:
+    def _get_matches_paths(self) -> Tuple[List[str], List[str]]:
         """from file names ['img1.png', ...] to full path ['path/to/img1.png']"""
         images_paths = [f'{self.images_dir}/{file}' for file in self.images_names]
         labels_paths = [f'{self.labels_dir}/{file}' for file in self.labels_names]
@@ -127,7 +128,7 @@ class Dataset(torch.utils.data.Dataset):
     def _get_image(self, idx: int) -> torch.tensor:
         return torch.tensor(cv2.imread(self.images_paths[idx])[..., ::-1] / 255).permute(2, 0, 1).float()
 
-    def _get_label(self, idx: int) -> tuple[torch.tensor, torch.tensor]:
+    def _get_label(self, idx: int) -> Tuple[torch.tensor, torch.tensor]:
         label = Label(self.labels_paths[idx])
         obb = label.xyxy if self.obb_format == 'xyxy' else label.xywha
         objects_class = label.objects_class
@@ -150,13 +151,13 @@ if __name__ == '__main__':
 
     # get one sample
     img, obb, object_class = next(iter(train_data_loader))
-    print(f'{img.shape = }')
-    print(f'{obb.shape = }')
-    print(f'{object_class.shape = }')
+    print(f'img.shape = {img.shape}')
+    print(f'obb.shape = {obb.shape}')
+    print(f'object_class.shape = {object_class.shape}')
 
     # iterate over all dataset
     for img, obb, object_class in train_data_loader:
-        print(f'{img.shape = }')
-        print(f'{obb.shape = }')
-        print(f'{object_class.shape = }')
+        print(f'img.shape = {img.shape}')
+        print(f'obb.shape = {obb.shape}')
+        print(f'object_class.shape = {object_class.shape}')
         break

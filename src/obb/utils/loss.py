@@ -17,9 +17,9 @@ class FocalLoss(nn.Module):
         if isinstance(alpha, list):
             self.alpha = torch.Tensor(alpha)
 
-    def forward(self, input, target):
-        target = target.view(-1, 1)
-        logpt = log_softmax(input, dim=1).gather(1, target).view(-1)
+    def forward(self, x_in, x_target):
+        x_target = x_target.view(-1, 1)
+        logpt = log_softmax(x_in, dim=1).gather(1, x_target).view(-1)
         pt = Variable(logpt.data.exp())
         loss = - self.alpha * (1 - pt) ** self.gamma * logpt
         return loss.mean() if self.size_average else loss.sum()

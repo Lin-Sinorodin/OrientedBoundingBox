@@ -157,8 +157,8 @@ if __name__ == '__main__':
     intersection_area = polygon_area(clipped_polygon)
     union_area = poly1_area + poly2_area - intersection_area
     iou = intersection_area / union_area
-    print(f'{poly1_area = }')
-    print(f'{poly2_area = }')
-    print(f'{intersection_area = }')
-    print(f'{union_area = }')
-    print(f'{iou = }')
+    print(f'poly1_area = {poly1_area}')
+    print(f'poly2_area = {poly2_area}')
+    print(f'intersection_area = {intersection_area}')
+    print(f'union_area = {union_area}')
+    print(f'iou = {iou}')

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from obb.model import common
-
+from typing import List
 
 BACKBONE = [
     ['Conv', {'channel_out': 64, 'kernel_size': 6, 'stride': 2, 'padding': 2}],   # 0
@@ -61,9 +61,9 @@ NUM_FEATURE_MAPS = 4
 class FeatureMap(nn.Module):
     def __init__(
             self,
-            backbone: list[list[str, dict]],
-            neck: list[list[str, dict]],
-            remember_layers: list[int],
+            backbone: List[List[str, dict]],
+            neck: List[List[str, dict]],
+            remember_layers: List[int],
             num_feature_maps: int
     ):
         super().__init__()
@@ -110,7 +110,7 @@ class FeatureMap(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x) -> list[torch.tensor]:
+    def forward(self, x) -> List[torch.tensor]:
         curr_feature = x
         prev_features = []
         for layer in self.model:
@@ -135,21 +135,23 @@ class FeatureMap(nn.Module):
 
 if __name__ == '__main__':
     img_in = torch.rand(2, 3, 256, 256)
-    print('\n\t'.join(['Input:', f'{img_in.shape = }']))
+    print('\n\t'.join(['Input:', f'img_in.shape = {img_in.shape}']))
 
     feature_map = FeatureMap(BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS)
     P2, P3, P4, P5 = feature_map(img_in)
     print('\n\t'.join([
         'Output (Feature Maps):',
-        f'{P2.shape = }  |  {P2.stride = }',
-        f'{P3.shape = }  |  {P3.stride = }',
-        f'{P4.shape = }  |  {P4.stride = }',
-        f'{P5.shape = }  |  {P5.stride = }'
+        f'P2.shape = {P2.shape}  |  P2.stride = {P2.stride}',
+        f'P3.shape = {P3.shape}  |  P3.stride = {P3.stride}',
+        f'P4.shape = {P4.shape}  |  P4.stride = {P4.stride}',
+        f'P5.shape = {P5.shape}  |  P5.stride = {P5.stride}',
     ]))
 
     total_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters()])
     trainable_parameters = sum([np.prod(p.size()) for p in feature_map.model.parameters() if p.requires_grad])
-    print('\n\t'.join(['Model parameters:', f'{total_parameters = :,}', f'{trainable_parameters = :,}']))
+    print('\n\t'.join(['Model parameters:',
+                       f'total_parameters = {total_parameters:,}',
+                       f'trainable_parameters = {trainable_parameters:,}']))
 
     """
     Input:
