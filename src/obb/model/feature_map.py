@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from obb.model import common
-from typing import List
+from typing import List, Union
 
 BACKBONE = [
     ['Conv', {'channel_out': 64, 'kernel_size': 6, 'stride': 2, 'padding': 2}],   # 0
@@ -61,8 +61,8 @@ NUM_FEATURE_MAPS = 4
 class FeatureMap(nn.Module):
     def __init__(
             self,
-            backbone: List[List[str, dict]],
-            neck: List[List[str, dict]],
+            backbone: List[List[Union[str, dict]]],
+            neck: List[List[Union[str, dict]]],
             remember_layers: List[int],
             num_feature_maps: int
     ):
