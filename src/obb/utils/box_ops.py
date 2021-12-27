@@ -103,6 +103,71 @@ def convex_hull(points: torch.Tensor):
     return hull, sizes
 
 
+def diff_convex_hull(points: torch.Tensor):
+    """
+    PyTorch-Compliant, vectorized convex hull implementation using the monotone chain algorithm.
+    Details about the algorithm:
+        https://en.wikibooks.org/wiki/Algorithm_Implementation/Geometry/Convex_hull/Monotone_chain#Python
+
+    :param points: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with he last two dimensions
+    containing sets of N points.
+    :return: 1. (Tensor[..., N, 2]) Tensor of the points belonging to the convex hull of each set, sorted
+    counterclockwise. Cells after the last index in convex hull are assigned arbitrary values.
+    2. (Tensor[...]) Tensor of the number of points belonging to the convex hull of each set.
+    """
+    device = points.device
+
+    if points.shape[0] != 1:
+        raise NotImplementedError
+
+    # TODO Add support for Arbitrarily-dimensional tensors (current version works only when points.shape[:-2] is 1D).
+    N = points.shape[-2]  # Number of points in each set
+
+    # Sort points lexicographically by x-value
+    # Trick: add negligible noise to enforce unique x-values
+    eps = 1e-5
+    points = points + eps * torch.randn(points.shape, device=device)
+    indices = points[..., 0].argsort(dim=-1, descending=False)  # [..., N]
+    indices = indices.unsqueeze(-1).repeat(1, 1, 2)  # [..., N, 2]
+    points = points.gather(dim=-2, index=indices)
+
+    # Initialize lower + upper hulls
+    lower = torch.zeros_like(points, device=device)  # [..., N, 2]
+    upper = torch.zeros_like(points, device=device)  # [..., N, 2]
+
+    lower_sizes = 0
+    upper_sizes = 0
+
+    for k in range(N):
+        # Build lower hull
+        while True:
+            mask = (lower_sizes >= 2) * (cross(lower[0, lower_sizes - 2, :],
+                                               lower[0, lower_sizes - 1, :],
+                                               points[..., k, :]) <= 0)
+            lower_sizes = lower_sizes - mask.long()
+            if not mask.any():
+                break
+
+        lower[0, lower_sizes, :] = points[..., k, :]
+        lower_sizes += 1
+
+        # Build upper hull
+        while True:
+            mask = (upper_sizes >= 2) * (cross(upper[0, upper_sizes - 2, :],
+                                               upper[0, upper_sizes - 1, :],
+                                               points[:, N - 1 - k, :]) <= 0)
+            upper_sizes = upper_sizes - mask.long()
+            if not mask.any():
+                break
+
+        upper[0, upper_sizes, :] = points[..., N - 1 - k, :]
+        upper_sizes += 1
+
+    positive_upper = int(torch.where((upper[0, :, 0] > 0) * (upper[0, :, 1] > 0))[0][-1])
+    positive_lower = int(torch.where((lower[0, :, 0] > 0) * (lower[0, :, 1] > 0))[0][-1])
+    return torch.cat([upper[0, :positive_upper, :], lower[0, :positive_lower, :]], dim=0)
+
+
 def apply_rot(points: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, inv: bool = False):
     """Applying passive rotation by angle theta on points, given cos(theta), sin(theta)."""
     cos = cos.unsqueeze(-1)  # [..., 1]

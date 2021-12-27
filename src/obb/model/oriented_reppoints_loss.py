@@ -4,7 +4,7 @@ from einops import rearrange
 from kornia.losses import focal_loss
 
 from obb.model.custom_model import DetectionModel
-from obb.utils.box_ops import convex_hull
+from obb.utils.box_ops import diff_convex_hull
 from obb.utils.poly_intersection import PolygonClipper, polygon_area
 from typing import Dict
 
@@ -196,8 +196,8 @@ class OrientedRepPointsLoss(nn.Module):
             curr_rep_points = points.reshape(-1, 2).unsqueeze(dim=0)
 
             # convex hull of the current rep points
-            hull, hull_size = convex_hull(curr_rep_points)
-            hull_points = hull[:, :int(hull_size[0]), :].squeeze(dim=0)
+            hull = diff_convex_hull(curr_rep_points)
+            hull_points = hull.squeeze(dim=0)
             hull_points = torch.flip(hull_points, [0])  # counterclockwise -> clockwise
 
             # ground truth obb for the current rep points
@@ -247,7 +247,7 @@ class OrientedRepPointsLoss(nn.Module):
         initialization_loss = self._initialization_step_loss(rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init)
         refinement_loss = self._refinement_step_loss()
 
-        return classification_loss + initialization_loss + refinement_loss
+        return classification_loss #+ initialization_loss + refinement_loss
 
 
 if __name__ == '__main__':
@@ -264,3 +264,20 @@ if __name__ == '__main__':
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
     loss = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
     print(loss)
+
+    torch.autograd.set_detect_anomaly(True)
+
+    learning_rate = 1e-3
+    whight_decay = 5e-5
+
+    # select optimizer
+    optimizer = torch.optim.Adam(
+        params=model.parameters(),
+        lr=learning_rate,
+        weight_decay=whight_decay,
+        amsgrad=True
+    )
+
+    optimizer.zero_grad()  # zero the parameter gradients
+    loss.backward()  # backpropagation
+    optimizer.step()
