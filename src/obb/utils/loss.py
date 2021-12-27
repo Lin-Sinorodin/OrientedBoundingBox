@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch.nn.functional import log_softmax
 from torch.autograd import Variable
 
 
@@ -19,7 +19,7 @@ class FocalLoss(nn.Module):
 
     def forward(self, input, target):
         target = target.view(-1, 1)
-        logpt = F.log_softmax(input).gather(1, target).view(-1)
+        logpt = log_softmax(input, dim=1).gather(1, target).view(-1)
         pt = Variable(logpt.data.exp())
         loss = - self.alpha * (1 - pt) ** self.gamma * logpt
         return loss.mean() if self.size_average else loss.sum()
