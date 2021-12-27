@@ -8,6 +8,8 @@ from obb.utils.box_ops import convex_hull
 from obb.utils.poly_intersection import PolygonClipper, polygon_area
 from typing import Dict
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class OBBPointAssigner:
     """
@@ -168,7 +170,7 @@ class OrientedRepPointsLoss(nn.Module):
             # find rep points centers for the ground truth assigner
             centers1 = rearrange(curr_rep_points1[:, 8:10, :, :], 'b xy w h -> (b w h) xy')
             centers2 = rearrange(curr_rep_points2[:, 8:10, :, :], 'b xy w h -> (b w h) xy')
-            stride_vec = torch.ones(centers1.shape[0], 1) * self.strides.get(feature_map)
+            stride_vec = self.strides.get(feature_map) * torch.ones(centers1.shape[0], 1).to(device)
             multi_level_centers_init[feature_map] = torch.cat([centers1, stride_vec], dim=1)  # [..., 3]
             multi_level_centers_refine[feature_map] = torch.cat([centers2, stride_vec], dim=1)  # [..., 3]
 
@@ -188,8 +190,8 @@ class OrientedRepPointsLoss(nn.Module):
         positive_rep_points_init = rep_points_init[positive_samples_idx_init]
 
         # initialize losses with 0
-        localization_loss = torch.zeros(1).float()
-        spatial_constraint_loss = torch.zeros(1).float()  # TODO
+        localization_loss = torch.zeros(1).float().to(device)
+        spatial_constraint_loss = torch.zeros(1).float().to(device)  # TODO
 
         # iterate over positive samples and add it's loss to the total loss
         for i, points in enumerate(positive_rep_points_init):
@@ -221,8 +223,8 @@ class OrientedRepPointsLoss(nn.Module):
 
     def _refinement_step_loss(self):
         # initialize losses with 0
-        localization_loss = torch.zeros(1).float()        # TODO
-        spatial_constraint_loss = torch.zeros(1).float()  # TODO
+        localization_loss = torch.zeros(1).float().to(device)        # TODO
+        spatial_constraint_loss = torch.zeros(1).float().to(device)  # TODO
 
         return (self.refine_localization_weight * localization_loss +
                 self.refine_spatial_constraint_weight * spatial_constraint_loss)
@@ -250,7 +252,7 @@ class OrientedRepPointsLoss(nn.Module):
 
 if __name__ == '__main__':
     model = DetectionModel()
-    img_in = torch.rand(1, 3, 160, 160)
+    img_in = torch.rand(1, 3, 256, 256)
 
     # fake ground truth data
     gt_labels_ = torch.tensor([3, 1])
