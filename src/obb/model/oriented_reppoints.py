@@ -91,7 +91,7 @@ class OrientedRepPointsHead(nn.Module):
         )
 
         # get rep points
-        rep_points_init = offset1 + initialize_rep_points(feature_map_size=tuple(feature.shape[2:4]))
+        rep_points_init = offset1 + initialize_rep_points(feature_map_size=tuple(feature.shape[2:4])).to(device)
         rep_points_refine = offset2 + rep_points_init
 
         return rep_points_init, rep_points_refine, classification
