@@ -29,6 +29,7 @@ def convex_hull(points: torch.Tensor):
     counterclockwise. Cells after the last index in convex hull are assigned arbitrary values.
     2. (Tensor[...]) Tensor of the number of points belonging to the convex hull of each set.
     """
+    device = points.device
 
     D = points.shape[0]  # Dimensions excluding cluster size and coordinate number (2)
     # TODO Add support for Arbitrarily-dimensional tensors (current version works only when points.shape[:-2] is 1D).
@@ -37,17 +38,17 @@ def convex_hull(points: torch.Tensor):
     # Sort points lexicographically by x-value
     # Trick: add negligible noise to enforce unique x-values
     eps = 1e-5
-    points = points + eps * torch.randn(points.shape)
+    points = points + eps * torch.randn(points.shape, device=device)
     indices = points[..., 0].argsort(dim=-1, descending=False)  # [..., N]
     indices = indices.unsqueeze(-1).repeat(1, 1, 2)  # [..., N, 2]
     points = points.gather(dim=-2, index=indices)
 
     # Initialize lower + upper hulls
-    lower = torch.zeros(points.shape)  # [..., N, 2]
-    upper = torch.zeros(points.shape)  # [..., N, 2]
+    lower = torch.zeros(points.shape, device=device)  # [..., N, 2]
+    upper = torch.zeros(points.shape, device=device)  # [..., N, 2]
 
-    lower_sizes = torch.zeros(D).long()  # [...]
-    upper_sizes = torch.zeros(D).long()  # [...]
+    lower_sizes = torch.zeros(D, device=device).long()  # [...]
+    upper_sizes = torch.zeros(D, device=device).long()  # [...]
 
     for k in range(N):
         # Build lower hull
@@ -79,8 +80,8 @@ def convex_hull(points: torch.Tensor):
     # Concatenation of the lower and upper hulls gives the convex hull.
     # Last point of each list is omitted because it is repeated at the beginning of the other list.
 
-    hull = torch.zeros(points.shape).fill_(float('nan'))  # [..., N, 2]
-    sizes = torch.zeros(D).long()  # [...]
+    hull = torch.zeros(points.shape, device=device).fill_(float('nan'))  # [..., N, 2]
+    sizes = torch.zeros(D, device=device).long()  # [...]
 
     for k in range(N):
         mask = lower_sizes > k + 1
@@ -129,6 +130,7 @@ def min_area_rect(points: torch.Tensor) -> torch.Tensor:
     :return: (Tensor[..., 4, 2]) Tensor containing the minimal rectangle for each point set in
     (x0, y0),...,(x3, y3) format, sorted counterclockwise.
     """
+    device = points.device
 
     D = points.shape[0]  # Dimensions excluding cluster size and coordinate number (2)
     # TODO Add support for Arbitrarily-dimensional tensors (current version works only when points.shape[:-2] is 1D).
@@ -138,19 +140,19 @@ def min_area_rect(points: torch.Tensor) -> torch.Tensor:
     hull, sizes = convex_hull(points)
 
     # Retrieve hull edges and their respective angles relative to the positive x-axis
-    edges = torch.zeros(points.shape)  # [..., N, 2]
+    edges = torch.zeros(points.shape, device=device)  # [..., N, 2]
     edges[..., 1:, :] = hull[..., 1:, :] - hull[..., :-1, :]
     edges[..., 0, :] = hull[..., 0, :] - hull[torch.arange(D), sizes - 1, :]
     angles = torch.atan2(edges[..., 1], edges[..., 0])  # [..., N]
 
-    rect_min = torch.zeros(D, 4, 2)  # [..., 4, 2]
-    area_min = torch.zeros(D).fill_(float('inf'))  # [...]
+    rect_min = torch.zeros(D, 4, 2, device=device)  # [..., 4, 2]
+    area_min = torch.zeros(D, device=device).fill_(float('inf'))  # [...]
 
     for k in range(N):
         # Apply rotation by corresponding edge angles
         theta = angles[..., k]
-        cos = torch.cos(theta)  # [...]
-        sin = torch.sin(theta)  # [...]
+        cos = torch.cos(theta, device=device)  # [...]
+        sin = torch.sin(theta, device=device)  # [...]
 
         hull_rot = apply_rot(hull, cos, sin, inv=False)  # [..., N, 2]
 
