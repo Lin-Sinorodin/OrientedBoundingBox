@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 from einops import rearrange
+from kornia.losses import focal_loss
 
 from obb.model.custom_model import DetectionModel
-from obb.utils.loss import FocalLoss
 from obb.utils.box_ops import convex_hull
 from obb.utils.poly_intersection import PolygonClipper, polygon_area
 from typing import Dict
@@ -145,8 +145,6 @@ class OrientedRepPointsLoss(nn.Module):
         self.init_spatial_constraint_weight = 0.05
         self.refine_spatial_constraint_weight = 0.1
 
-        self.classification_loss_metric = FocalLoss(gamma=2, alpha=0.25)
-
         self.init_assigner = OBBPointAssigner()
         self.refine_assigner = ...  # TODO
 
@@ -183,10 +181,10 @@ class OrientedRepPointsLoss(nn.Module):
 
         return rep_points_init, rep_points_refine, classification, centers_init, multi_level_centers_refine
 
-    def _initialization_step_loss(self, rep_points_init, centers_init, gt_obboxes, gt_labels):
+    def _initialization_step_loss(self, rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init):
         # initialization stage assigner
-        assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obboxes, gt_labels)
         positive_samples_idx_init = torch.where(assigned_labels_init > 0)
+        positive_assigned_gt_idxs_init = assigned_gt_idxs_init[positive_samples_idx_init]
         positive_rep_points_init = rep_points_init[positive_samples_idx_init]
 
         # initialize losses with 0
@@ -203,7 +201,8 @@ class OrientedRepPointsLoss(nn.Module):
             hull_points = torch.flip(hull_points, [0])  # counterclockwise -> clockwise
 
             # ground truth obb for the current rep points
-            gt_points = gt_obboxes[i].reshape(-1, 2).float()
+            gt_box_idx = int(positive_assigned_gt_idxs_init[i]) - 1
+            gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float()
             gt_points.requires_grad = True
 
             # calculate IOU for localization loss
@@ -234,7 +233,7 @@ class OrientedRepPointsLoss(nn.Module):
             raw_rep_points_init: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
             raw_rep_points_refine: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
             raw_classification: Dict[str, torch.Tensor],  # {'P2': shape[b cls w h], ...}
-            gt_obboxes: torch.Tensor,  # [[x1, y1, x2, y2, x3, y3, x4, y4], [...]]
+            gt_obb: torch.Tensor,  # [[x1, y1, x2, y2, x3, y3, x4, y4], [...]]
             gt_labels: torch.Tensor  # [bbox1_cls, bbox2_cls, ...]
     ):
         """Loss function for Oriented Rep Points"""
@@ -243,8 +242,9 @@ class OrientedRepPointsLoss(nn.Module):
             raw_rep_points_init, raw_rep_points_refine, raw_classification
         )
 
-        classification_loss = self.classification_loss_metric(classification, gt_labels)
-        initialization_loss = self._initialization_step_loss(rep_points_init, centers_init, gt_obboxes, gt_labels)
+        assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
+        classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
+        initialization_loss = self._initialization_step_loss(rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init)
         refinement_loss = self._refinement_step_loss()
 
         return classification_loss + initialization_loss + refinement_loss
