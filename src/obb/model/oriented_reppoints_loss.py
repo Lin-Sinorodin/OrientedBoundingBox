@@ -131,14 +131,31 @@ class OBBPointAssigner:
         return assigned_gt_inds, assigned_labels
 
 
+def giou_loss(gt_points, pred_points):
+    intersection_points = polygon_intersection(gt_points, pred_points)
+    poly1_area = polygon_area(pred_points)
+    poly2_area = polygon_area(gt_points)
+    intersection_area = polygon_area(intersection_points)
+    union_area = poly1_area + poly2_area - intersection_area
+    iou = intersection_area / (union_area + 1e-16)
+
+    all_points = torch.cat([gt_points, pred_points])
+    all_points_area = polygon_area(convex_hull(all_points))
+    giou = iou - (all_points_area - union_area) / (all_points_area + 1e-16)
+    return 1 - giou
+
+
+# TODO
+def out_of_box_loss(gt_points, pred_points):
+    return 0
+
+
 class OrientedRepPointsLoss(nn.Module):
     def __init__(self, strides):
         super().__init__()
 
         self.strides = strides
         self.feature_maps_names = list(self.strides.keys())
-
-        self.use_giou = True
 
         # balance parameters between components of the loss. values from oriented rep points config file.
         self.init_localization_weight = 0.3
@@ -149,12 +166,11 @@ class OrientedRepPointsLoss(nn.Module):
         self.init_assigner = OBBPointAssigner()
         self.refine_assigner = ...  # TODO
 
-    def _process_data(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
+    def _flatten_head_output(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
+        """Convert the output of Oriented Rep Points head from dicts to tensors for loss calculation"""
         multi_level_rep_points_init = {}
         multi_level_rep_points_refine = {}
         multi_level_classification = {}
-        multi_level_centers_init = {}
-        multi_level_centers_refine = {}
         for feature_map in self.feature_maps_names:
             # get rep points of the current feature map
             curr_rep_points1 = raw_rep_points_init[feature_map]
@@ -166,21 +182,33 @@ class OrientedRepPointsLoss(nn.Module):
             multi_level_rep_points_refine[feature_map] = rearrange(curr_rep_points2, 'b xy w h -> (b w h) xy')
             multi_level_classification[feature_map] = rearrange(curr_classification, 'b cls w h -> (b w h) cls')
 
-            # find rep points centers for the ground truth assigner
-            centers1 = rearrange(curr_rep_points1[:, 8:10, :, :], 'b xy w h -> (b w h) xy')
-            centers2 = rearrange(curr_rep_points2[:, 8:10, :, :], 'b xy w h -> (b w h) xy')
-            stride_vec = self.strides.get(feature_map) * torch.ones(centers1.shape[0], 1).to(device)
-            multi_level_centers_init[feature_map] = torch.cat([centers1, stride_vec], dim=1)  # [..., 3]
-            multi_level_centers_refine[feature_map] = torch.cat([centers2, stride_vec], dim=1)  # [..., 3]
-
         # concat multi-level features
         rep_points_init = torch.cat(list(multi_level_rep_points_init.values()), dim=0)
         rep_points_refine = torch.cat(list(multi_level_rep_points_refine.values()), dim=0)
         classification = torch.cat(list(multi_level_classification.values()), dim=0)
-        centers_init = torch.cat(list(multi_level_centers_init.values()), dim=0)
-        multi_level_centers_refine = torch.cat(list(multi_level_centers_refine.values()), dim=0)
 
-        return rep_points_init, rep_points_refine, classification, centers_init, multi_level_centers_refine
+        return rep_points_init, rep_points_refine, classification
+
+    def _get_centers(self, raw_rep_points_init, raw_rep_points_refine):
+        """Find ground truth rep points centers for the point assigners, in format [..., x y stride]."""
+        multi_level_centers_init = {}
+        multi_level_centers_refine = {}
+        for feature_map in self.feature_maps_names:
+            # get the center of the rep points for the current feature map
+            centers1 = raw_rep_points_init[feature_map][:, 8:10, :, :]
+            centers2 = raw_rep_points_refine[feature_map][:, 8:10, :, :]
+
+            centers1_flattened = rearrange(centers1, 'b xy w h -> (b w h) xy')
+            centers2_flattened = rearrange(centers2, 'b xy w h -> (b w h) xy')
+            stride_vec = self.strides.get(feature_map) * torch.ones(centers1_flattened.shape[0], 1).to(device)
+            multi_level_centers_init[feature_map] = torch.cat([centers1_flattened, stride_vec], dim=1)  # [..., 3]
+            multi_level_centers_refine[feature_map] = torch.cat([centers2_flattened, stride_vec], dim=1)  # [..., 3]
+
+        # concat multi-level features
+        centers_init = torch.cat(list(multi_level_centers_init.values()), dim=0)
+        centers_refine = torch.cat(list(multi_level_centers_refine.values()), dim=0)
+
+        return centers_init, centers_refine
 
     def _initialization_step_loss(self, rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init):
         # initialization stage assigner
@@ -189,65 +217,66 @@ class OrientedRepPointsLoss(nn.Module):
         positive_rep_points_init = rep_points_init[positive_samples_idx_init]
 
         # initialize losses with 0
-        localization_loss = torch.zeros(1).float().to(device)
-        spatial_constraint_loss = torch.zeros(1).float().to(device)  # TODO
+        localization_loss = torch.zeros(1, dtype=torch.float, device=device)
+        spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
 
         # iterate over positive samples and add it's loss to the total loss
-        for i, points in enumerate(positive_rep_points_init):
+        for i, pred_points in enumerate(positive_rep_points_init):
+            pred_points = pred_points.reshape(-1, 2)
             # ground truth obb for the current rep points
             gt_box_idx = int(positive_assigned_gt_idxs_init[i]) - 1
             gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float()
             gt_points.requires_grad = False
 
-            # convex hull of the current rep points
-            hull_points = convex_hull(points.reshape(-1, 2))
-
-            # calculate IOU for localization loss
-            intersection_points = polygon_intersection(gt_points, hull_points)
-            poly1_area = polygon_area(hull_points)
-            poly2_area = polygon_area(gt_points)
-            intersection_area = polygon_area(intersection_points)
-            union_area = poly1_area + poly2_area - intersection_area
-            iou = intersection_area / (union_area + 1e-16)  # TODO convert it to GIoU
-            if self.use_giou:
-                all_points = torch.cat([gt_points, hull_points])
-                all_points_area = polygon_area(convex_hull(all_points))
-                giou = iou - (all_points_area - union_area) / (all_points_area + 1e-16)
-                localization_loss += 1 - giou
-            else:
-                localization_loss += 1 - iou
-
-            # calculate spatial_constraint_loss
-            # TODO
+            pred_points_convex_hull = convex_hull(pred_points)
+            localization_loss += giou_loss(gt_points, pred_points_convex_hull)
+            spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)  # TODO
 
         return (self.init_localization_weight * localization_loss +
                 self.init_spatial_constraint_weight * spatial_constraint_loss)
 
     def _refinement_step_loss(self):
         # initialize losses with 0
-        localization_loss = torch.zeros(1).float().to(device)        # TODO
-        spatial_constraint_loss = torch.zeros(1).float().to(device)  # TODO
+        localization_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
+        spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
 
         return (self.refine_localization_weight * localization_loss +
                 self.refine_spatial_constraint_weight * spatial_constraint_loss)
 
     def get_loss(
             self,
-            raw_rep_points_init: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
-            raw_rep_points_refine: Dict[str, torch.Tensor],  # {'P2': shape[b xy w h], ...}
-            raw_classification: Dict[str, torch.Tensor],  # {'P2': shape[b cls w h], ...}
-            gt_obb: torch.Tensor,  # [[x1, y1, x2, y2, x3, y3, x4, y4], [...]]
-            gt_labels: torch.Tensor  # [bbox1_cls, bbox2_cls, ...]
+            raw_rep_points_init: Dict[str, torch.Tensor],
+            raw_rep_points_refine: Dict[str, torch.Tensor],
+            raw_classification: Dict[str, torch.Tensor],
+            gt_obb: torch.Tensor,
+            gt_labels: torch.Tensor
     ):
-        """Loss function for Oriented Rep Points"""
+        """
+        Loss function for Oriented Rep Points.
+
+        :param raw_rep_points_init: rep points from initialization stage
+                {'P2': shape[b xy w h], ...}
+        :param raw_rep_points_refine: rep points from refinement step
+                {'P2': shape[b xy w h], ...}
+        :param raw_classification: rep points classification
+                {'P2': shape[b cls w h], ...}
+        :param gt_obb: ground truth oriented bounding box
+                [[x1, y1, x2, y2, x3, y3, x4, y4], [...]]
+        :param gt_labels: ground truth label for each bounding box
+                [bbox1_cls, bbox2_cls, ...]
+        :return:
+        """
         # convert the output of Rep Points head to flattened representation
-        rep_points_init, rep_points_refine, classification, centers_init, centers_refine = self._process_data(
+        rep_points_init, rep_points_refine, classification = self._flatten_head_output(
             raw_rep_points_init, raw_rep_points_refine, raw_classification
         )
+        centers_init, centers_refine = self._get_centers(raw_rep_points_init, raw_rep_points_refine)
 
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
         classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
-        initialization_loss = self._initialization_step_loss(rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init)
+        initialization_loss = self._initialization_step_loss(
+            rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
+        )
         refinement_loss = self._refinement_step_loss()
 
         return classification_loss + initialization_loss + refinement_loss
@@ -281,6 +310,6 @@ if __name__ == '__main__':
         amsgrad=True
     )
 
-    optimizer.zero_grad()  # zero the parameter gradients
-    loss.backward()  # backpropagation
+    optimizer.zero_grad()
+    loss.backward()
     optimizer.step()
