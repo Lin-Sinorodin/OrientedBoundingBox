@@ -3,6 +3,8 @@ numpy
 gdown
 matplotlib
 einops
+kornia
+torchtyping
 torchvision
 opencv-python
 setuptools

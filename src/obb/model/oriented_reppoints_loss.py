@@ -1,12 +1,11 @@
 import torch
 import torch.nn as nn
+from typing import Dict
 from einops import rearrange
 from kornia.losses import focal_loss
 
 from obb.model.custom_model import DetectionModel
-from obb.utils.box_ops import diff_convex_hull
-from obb.utils.poly_intersection import PolygonClipper, polygon_area
-from typing import Dict
+from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -139,6 +138,8 @@ class OrientedRepPointsLoss(nn.Module):
         self.strides = strides
         self.feature_maps_names = list(self.strides.keys())
 
+        self.use_giou = True
+
         # balance parameters between components of the loss. values from oriented rep points config file.
         self.init_localization_weight = 0.3
         self.refine_localization_weight = 1.
@@ -193,26 +194,28 @@ class OrientedRepPointsLoss(nn.Module):
 
         # iterate over positive samples and add it's loss to the total loss
         for i, points in enumerate(positive_rep_points_init):
-            curr_rep_points = points.reshape(-1, 2).unsqueeze(dim=0)
-
-            # convex hull of the current rep points
-            hull = diff_convex_hull(curr_rep_points)
-            hull_points = hull.squeeze(dim=0)
-            hull_points = torch.flip(hull_points, [0])  # counterclockwise -> clockwise
-
             # ground truth obb for the current rep points
             gt_box_idx = int(positive_assigned_gt_idxs_init[i]) - 1
             gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float()
-            gt_points.requires_grad = True
+            gt_points.requires_grad = False
+
+            # convex hull of the current rep points
+            hull_points = convex_hull(points.reshape(-1, 2))
 
             # calculate IOU for localization loss
-            intersection_points = PolygonClipper().clip(gt_points, hull_points)
+            intersection_points = polygon_intersection(gt_points, hull_points)
             poly1_area = polygon_area(hull_points)
             poly2_area = polygon_area(gt_points)
             intersection_area = polygon_area(intersection_points)
             union_area = poly1_area + poly2_area - intersection_area
-            iou = intersection_area / union_area  # TODO convert it to GIoU
-            localization_loss += 1 - iou
+            iou = intersection_area / (union_area + 1e-16)  # TODO convert it to GIoU
+            if self.use_giou:
+                all_points = torch.cat([gt_points, hull_points])
+                all_points_area = polygon_area(convex_hull(all_points))
+                giou = iou - (all_points_area - union_area) / (all_points_area + 1e-16)
+                localization_loss += 1 - giou
+            else:
+                localization_loss += 1 - iou
 
             # calculate spatial_constraint_loss
             # TODO
@@ -247,7 +250,7 @@ class OrientedRepPointsLoss(nn.Module):
         initialization_loss = self._initialization_step_loss(rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init)
         refinement_loss = self._refinement_step_loss()
 
-        return classification_loss #+ initialization_loss + refinement_loss
+        return classification_loss + initialization_loss + refinement_loss
 
 
 if __name__ == '__main__':
