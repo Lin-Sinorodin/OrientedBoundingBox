@@ -23,7 +23,7 @@ def convex_hull(points: torch.Tensor):
     Details about the algorithm:
         https://en.wikibooks.org/wiki/Algorithm_Implementation/Geometry/Convex_hull/Monotone_chain#Python
 
-    :param points: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with he last two dimensions
+    :param points: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with the last two dimensions
     containing sets of N points.
     :return: 1. (Tensor[..., N, 2]) Tensor of the points belonging to the convex hull of each set, sorted
     counterclockwise. Cells after the last index in convex hull are assigned arbitrary values.
@@ -190,7 +190,7 @@ def min_area_rect(points: torch.Tensor) -> torch.Tensor:
     Implementation inspired by:
         https://gis.stackexchange.com/questions/22895/finding-minimum-area-rectangle-for-given-points
 
-    :param points: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with he last two dimensions
+    :param points: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with the last two dimensions
     containing sets of N points.
     :return: (Tensor[..., 4, 2]) Tensor containing the minimal rectangle for each point set in
     (x0, y0),...,(x3, y3) format, sorted counterclockwise.
@@ -216,8 +216,8 @@ def min_area_rect(points: torch.Tensor) -> torch.Tensor:
     for k in range(N):
         # Apply rotation by corresponding edge angles
         theta = angles[..., k]
-        cos = torch.cos(theta, device=device)  # [...]
-        sin = torch.sin(theta, device=device)  # [...]
+        cos = torch.cos(theta)  # [...]
+        sin = torch.sin(theta)  # [...]
 
         hull_rot = apply_rot(hull, cos, sin, inv=False)  # [..., N, 2]
 
@@ -241,3 +241,39 @@ def min_area_rect(points: torch.Tensor) -> torch.Tensor:
         rect_min[mask] = apply_rot(rect[mask], cos[mask], sin[mask], inv=True)
 
     return rect_min
+
+
+def is_inside_polygon(poly: torch.Tensor, sizes: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
+    """
+    Checking if point is inside a convex polygon.
+    The algorithm works by calculating cross products between segments connecting the point and consecutive vertices
+    of the polygon, and the point is inside iff all results have identical signs (equivalent to a winding number of zero).
+    Implementation is PyTorch-compliant.
+
+    :param poly: (Tensor[..., N, 2]) Arbitrarily-dimensional tensor, with the last two dimensions
+    containing the convex polygons' vertices in counterclockwise order.
+    :param sizes: (Tensor[...]) Tensor containing the number of vertices in each polygon.
+    :param points: (Tensor[...]) Tensor containing the points to be tested relative to the polygons.
+    :return: (Tensor[...]) Boolean tensor indicating whether each point is inside its corresponding polygon
+    (1 - Inside, 0 - Outside).
+    """
+    device = poly.device
+
+    D = poly.shape[0]  # Dimensions excluding number of vertices and coordinate number (2)
+    # TODO Add support for Arbitrarily-dimensional tensors (current version works only when points.shape[:-2] is 1D).
+    N = poly.shape[-2]  # Maximal possible number of vertices in a polygon
+
+    pos = torch.zeros(D, device=device)
+    neg = torch.zeros(D, device=device)
+
+    # Calculate cross product signs
+    for k in range(N - 1):
+        mask = (k < sizes)
+        k_succ = torch.remainder(k + 1, sizes)
+        crosses = cross(points, poly[..., k, :], poly[torch.arange(D), k_succ, :])
+        pos += (crosses > 0) * mask
+        neg += (crosses < 0) * mask
+
+    return torch.logical_or(pos == 0, neg == 0)
+
+
