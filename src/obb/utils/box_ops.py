@@ -275,5 +275,3 @@ def is_inside_polygon(poly: torch.Tensor, sizes: torch.Tensor, points: torch.Ten
         neg += (crosses < 0) * mask
 
     return torch.logical_or(pos == 0, neg == 0)
-
-

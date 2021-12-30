@@ -198,7 +198,7 @@ class OBBMaxIoUAssigner:
             assigned_gt_inds[(max_overlaps >= 0) & (max_overlaps < self.neg_iou_thr)] = 0
         elif isinstance(self.neg_iou_thr, tuple):
             assert len(self.neg_iou_thr) == 2
-            assigned_gt_inds[(max_overlaps >= self.neg_iou_thr[0])  & (max_overlaps < self.neg_iou_thr[1])] = 0
+            assigned_gt_inds[(max_overlaps >= self.neg_iou_thr[0]) & (max_overlaps < self.neg_iou_thr[1])] = 0
 
         # 3. assign positive: above positive IoU threshold
         pos_inds = max_overlaps >= self.pos_iou_thr

@@ -1,6 +1,5 @@
 import torch
 from math import pi
-from typing import List
 
 
 def gen_random_clusters(num_clusters=10, points_per_cluster=9, im_dim=(256, 256), cluster_dim=(40, 40)):
@@ -262,5 +261,3 @@ if __name__ == '__main__':
     print(f'intersection_area = {intersection_area}')
     print(f'union_area = {union_area}')
     print(f'iou = {iou}')
-
-
