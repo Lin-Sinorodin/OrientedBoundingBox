@@ -211,6 +211,16 @@ def polygon_area(pts: torch.Tensor) -> torch.Tensor:
     return area
 
 
+def polygon_iou(gt_points, pred_points):
+    intersection_points = polygon_intersection(gt_points, pred_points)
+    poly1_area = polygon_area(pred_points)
+    poly2_area = polygon_area(gt_points)
+    intersection_area = polygon_area(intersection_points)
+    union_area = poly1_area + poly2_area - intersection_area
+    iou = intersection_area / (union_area + 1e-16)
+    return iou
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 

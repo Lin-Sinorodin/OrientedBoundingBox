@@ -5,7 +5,7 @@ from einops import rearrange
 from kornia.losses import focal_loss
 
 from obb.model.custom_model import DetectionModel
-from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area
+from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -131,6 +131,100 @@ class OBBPointAssigner:
         return assigned_gt_inds, assigned_labels
 
 
+class OBBMaxIoUAssigner:
+
+    """
+    Assign a corresponding gt oriented bounding box or background to each oriented reppoints.
+
+    Each oriented points will be assigned with `0`, or a positive integer - index (1-based) of assigned gt.
+    Args:
+        pos_iou_thr (float): IoU threshold for positive obboxes.
+        neg_iou_thr (float or tuple): IoU threshold for negative obboxes.
+        min_pos_iou (float): Minimum iou for a obbox to be considered as a positive bbox. Positive samples can
+                             have smaller IoU than pos_iou_thr due to the 4th step (assign max IoU sample to each gt).
+        gt_max_assign_all (bool): Whether to assign all obboxes with the same highest overlap with some gt to that gt.
+
+    """
+
+    def __init__(self,
+                 pos_iou_thr=0.1,
+                 neg_iou_thr=0.1,
+                 min_pos_iou=.0,
+                 gt_max_assign_all=True):
+
+        self.pos_iou_thr = pos_iou_thr
+        self.neg_iou_thr = neg_iou_thr
+        self.min_pos_iou = min_pos_iou
+        self.gt_max_assign_all = gt_max_assign_all
+
+    @staticmethod
+    def convex_overlaps(gt_obb, rep_points):
+        rep_points_hull = [convex_hull(points.reshape(-1, 2)) for points in rep_points]
+
+        iou_matrix_rows = []
+        for gt_points in gt_obb:
+            iou_row = torch.stack(
+                [polygon_iou(gt_points.reshape(-1, 2), hull_points) for hull_points in rep_points_hull]
+            )
+            iou_matrix_rows.append(iou_row)
+
+        iou_matrix = torch.stack(iou_matrix_rows, dim=0)  # [num_gts_obb, num_rep_points_obb]
+        return iou_matrix
+
+    def assign(self, points, gt_obb, gt_labels=None):
+        overlaps = self.convex_overlaps(gt_obb, points)
+        num_gts, num_rep_points_obb = overlaps.size(0), overlaps.size(1)
+
+        # 1. assign -1 by default
+        assigned_gt_inds = overlaps.new_full((num_rep_points_obb,), -1, dtype=torch.long)
+
+        if num_gts == 0 or num_rep_points_obb == 0:
+            # No ground truth or boxes, return empty assignment
+            max_overlaps = overlaps.new_zeros((num_rep_points_obb,))
+            if num_gts == 0:
+                # No truth, assign everything to background
+                assigned_gt_inds[:] = 0
+            if gt_labels is None:
+                assigned_labels = None
+            else:
+                assigned_labels = overlaps.new_zeros((num_rep_points_obb,), dtype=torch.long)
+            return assigned_gt_inds, assigned_labels
+
+        max_overlaps, argmax_overlaps = overlaps.max(dim=0)
+        gt_max_overlaps, gt_argmax_overlaps = overlaps.max(dim=1)
+
+        # 2. assign negative: below
+        if isinstance(self.neg_iou_thr, float):
+            assigned_gt_inds[(max_overlaps >= 0) & (max_overlaps < self.neg_iou_thr)] = 0
+        elif isinstance(self.neg_iou_thr, tuple):
+            assert len(self.neg_iou_thr) == 2
+            assigned_gt_inds[(max_overlaps >= self.neg_iou_thr[0])  & (max_overlaps < self.neg_iou_thr[1])] = 0
+
+        # 3. assign positive: above positive IoU threshold
+        pos_inds = max_overlaps >= self.pos_iou_thr
+        assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
+
+        # 4. assign fg: for each gt, proposals with highest oriented IoU
+        for i in range(num_gts):
+            if gt_max_overlaps[i] >= self.min_pos_iou:
+                if self.gt_max_assign_all:
+                    max_iou_inds = overlaps[i, :] == gt_max_overlaps[i]
+                    assigned_gt_inds[max_iou_inds] = i + 1
+                else:
+                    assigned_gt_inds[gt_argmax_overlaps[i]] = i + 1
+
+        if gt_labels is not None:
+            assigned_labels = assigned_gt_inds.new_zeros((num_rep_points_obb,))
+            pos_inds = torch.nonzero(assigned_gt_inds > 0).squeeze()
+            if pos_inds.numel() > 0:
+                assigned_labels[pos_inds] = gt_labels[
+                    assigned_gt_inds[pos_inds] - 1]
+        else:
+            assigned_labels = None
+
+        return assigned_gt_inds, assigned_labels
+
+
 def giou_loss(gt_points, pred_points):
     intersection_points = polygon_intersection(gt_points, pred_points)
     poly1_area = polygon_area(pred_points)
@@ -164,7 +258,7 @@ class OrientedRepPointsLoss(nn.Module):
         self.refine_spatial_constraint_weight = 0.1
 
         self.init_assigner = OBBPointAssigner()
-        self.refine_assigner = ...  # TODO
+        self.refine_assigner = OBBMaxIoUAssigner()
 
     def _flatten_head_output(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
         """Convert the output of Oriented Rep Points head from dicts to tensors for loss calculation"""
@@ -272,10 +366,16 @@ class OrientedRepPointsLoss(nn.Module):
         )
         centers_init, centers_refine = self._get_centers(raw_rep_points_init, raw_rep_points_refine)
 
+        # initialization step
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
         classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
         initialization_loss = self._initialization_step_loss(
             rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
+        )
+
+        # refinement_step
+        assigned_gt_idxs_refine, assigned_labels_refine = self.refine_assigner.assign(
+            rep_points_refine, gt_obb, gt_labels
         )
         refinement_loss = self._refinement_step_loss()
 
