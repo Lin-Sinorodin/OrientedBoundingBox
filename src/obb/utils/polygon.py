@@ -51,9 +51,9 @@ def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.tensor:
     return (a[..., 0] - o[..., 0]) * (b[..., 1] - o[..., 1]) - (a[..., 1] - o[..., 1]) * (b[..., 0] - o[..., 0])
 
 
-def _angle_to_point(point, centre):
+def _angle_to_point(point, center):
     """calculate angle in 2-D between points and x axis"""
-    delta = point - centre
+    delta = point - center
     res = torch.atan(delta[1] / delta[0])
     if delta[0] < 0:
         res += pi
@@ -65,41 +65,40 @@ def _area_of_triangle(p1, p2, p3):
     return torch.norm(cross(p1, p2, p3)) / 2.
 
 
-def convex_hull(points):
+def convex_hull(polygon: torch.Tensor) -> torch.Tensor:
     """
     Calculate subset of points that make a convex hull around points.
 
-    This code used unchanged from:
+    Works by recursively eliminates points that lie inside two neighbouring points until only convex hull is remaining.
+
+    This function based on:
         https://github.com/maudzung/Complex-YOLOv4-Pytorch/blob/564e8e35ad81f5a9f1a24ca4ceaf10908a100bfd/src/utils/convex_hull_torch.py
 
-    Recursively eliminates points that lie inside two neighbouring points until only convex hull is remaining.
-    :Parameters:
-        points : (m, 2) array of points for which to find hull
-    :Returns:
-        hull_points : ndarray (n x 2) convex hull surrounding points
+    :param polygon: Nx2 tensor with vertices of a polygon, for which the convex hull is calculated
+    :return: Kx2 tensor with vertices of the convex hull
     """
+    assert polygon.dim() == 2, 'The input for this function should be a tensor with shape Nx2.'
+    assert polygon.shape[0] >= 4, 'Convex hull algorithm requires 4 points or more.'
+    assert polygon.shape[1] == 2, 'This implementation works only on 2D points.'
 
-    n_pts = points.size(0)
-    assert (n_pts >= 4)
-    centre = points.mean(0)
-    angles = torch.stack([_angle_to_point(point, centre) for point in points], dim=0)
-    pts_ord = points[angles.argsort(), :]
+    num_pts = polygon.shape[0]
+    center = polygon.mean(0)
+    angles = torch.stack([_angle_to_point(point, center) for point in polygon], dim=0)
+    pts_ord = polygon[angles.argsort(), :]
     pts = [x[0] for x in zip(pts_ord)]
     prev_pts = len(pts) + 1
-    k = 0
-    while prev_pts > n_pts:
-        prev_pts = n_pts
-        n_pts = len(pts)
+    while prev_pts > num_pts:
+        prev_pts = num_pts
+        num_pts = len(pts)
         i = -2
-        while i < (n_pts - 2):
-            Aij = _area_of_triangle(centre, pts[i], pts[(i + 1) % n_pts])
-            Ajk = _area_of_triangle(centre, pts[(i + 1) % n_pts], pts[(i + 2) % n_pts])
-            Aik = _area_of_triangle(centre, pts[i], pts[(i + 2) % n_pts])
+        while i < (num_pts - 2):
+            Aij = _area_of_triangle(center, pts[i], pts[(i + 1) % num_pts])
+            Ajk = _area_of_triangle(center, pts[(i + 1) % num_pts], pts[(i + 2) % num_pts])
+            Aik = _area_of_triangle(center, pts[i], pts[(i + 2) % num_pts])
             if Aij + Ajk < Aik:
                 del pts[i + 1]
             i += 1
-            n_pts = len(pts)
-        k += 1
+            num_pts = len(pts)
     return torch.stack(pts)
 
 
@@ -117,41 +116,31 @@ def lines_intersection(p1: torch.Tensor, p2: torch.Tensor, p3: torch.Tensor, p4:
     (parallel), since this function is only called if we know that the lines intersect.
     """
 
-    # if first line is vertical
     if p2[0] - p1[0] == 0:
-        # slope and intercept of second line
+        # if first line is vertical
         m2 = (p4[1] - p3[1]) / (p4[0] - p3[0])
         b2 = p3[1] - m2 * p3[0]
-
         x = p1[0]
         y = m2 * x + b2
-
-    # if second line is vertical
     elif p4[0] - p3[0] == 0:
-        # slope and intercept of first line
+        # if second line is vertical
         m1 = (p2[1] - p1[1]) / (p2[0] - p1[0])
         b1 = p1[1] - m1 * p1[0]
-
         x = p3[0]
         y = m1 * x + b1
-
-    # if neither line is vertical
     else:
-        # slope and intercept of first line
+        # if neither line is vertical
         m1 = (p2[1] - p1[1]) / (p2[0] - p1[0])
         b1 = p1[1] - m1 * p1[0]
-
-        # slope and intercept of second line
         m2 = (p4[1] - p3[1]) / (p4[0] - p3[0])
         b2 = p3[1] - m2 * p3[0]
-
         x = (b2 - b1) / (m1 - m2)
         y = m1 * x + b1
 
     return torch.stack((x, y)).unsqueeze(0)
 
 
-def polygon_intersection(gt_polygon: torch.Tensor, clipping_polygon: torch.Tensor):
+def polygon_intersection(gt_polygon: torch.Tensor, clipping_polygon: torch.Tensor) -> torch.Tensor:
     """
     Find the intersection polygon between gt_polygon and clipping_polygon.
     Based on: https://github.com/mdabdk/sutherland-hodgman
@@ -164,6 +153,10 @@ def polygon_intersection(gt_polygon: torch.Tensor, clipping_polygon: torch.Tenso
     :param clipping_polygon: Mx2 tensor with vertices of the other polygon
     :return: Kx2 tensor with vertices of the intersection polygon
     """
+    assert gt_polygon.dim() == 2, 'The input for this function should be a tensors with shape Nx2.'
+    assert clipping_polygon.dim() == 2, 'The input for this function should be a tensors with shape Nx2.'
+    assert gt_polygon.shape[1] == 2, 'This implementation works only on 2D points.'
+    assert clipping_polygon.shape[1] == 2, 'This implementation works only on 2D points.'
     device = clipping_polygon.device
 
     final_polygon = torch.clone(gt_polygon)
