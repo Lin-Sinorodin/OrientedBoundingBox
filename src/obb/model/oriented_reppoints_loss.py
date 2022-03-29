@@ -6,6 +6,7 @@ from kornia.losses import focal_loss
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
+from obb.utils.box_ops import out_of_box_distance
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -239,9 +240,9 @@ def giou_loss(gt_points, pred_points):
     return 1 - giou
 
 
-# TODO
 def out_of_box_loss(gt_points, pred_points):
-    return 0
+    dists = out_of_box_distance(pred_points, gt_points)
+    return torch.mean(dists)
 
 
 class OrientedRepPointsLoss(nn.Module):
@@ -324,10 +325,10 @@ class OrientedRepPointsLoss(nn.Module):
 
             pred_points_convex_hull = convex_hull(pred_points)
             localization_loss += giou_loss(gt_points, pred_points_convex_hull)
-            spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)  # TODO
+            spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)
 
-        return (self.init_localization_weight * localization_loss +
-                self.init_spatial_constraint_weight * spatial_constraint_loss)
+        return (self.init_localization_weight * localization_loss
+                 + self.init_spatial_constraint_weight * spatial_constraint_loss)
 
     def _refinement_step_loss(self):
         # initialize losses with 0
@@ -400,13 +401,13 @@ if __name__ == '__main__':
     torch.autograd.set_detect_anomaly(True)
 
     learning_rate = 1e-3
-    whight_decay = 5e-5
+    weight_decay = 5e-5
 
     # select optimizer
     optimizer = torch.optim.Adam(
         params=model.parameters(),
         lr=learning_rate,
-        weight_decay=whight_decay,
+        weight_decay=weight_decay,
         amsgrad=True
     )
 
