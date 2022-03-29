@@ -2,6 +2,7 @@
 Utilities for oriented bounding box manipulation and GIoU.
 Credit: https://github.com/jw9730/ori-giou
 """
+import math
 import torch
 
 
@@ -275,3 +276,62 @@ def is_inside_polygon(poly: torch.Tensor, sizes: torch.Tensor, points: torch.Ten
         neg += (crosses < 0) * mask
 
     return torch.logical_or(pos == 0, neg == 0)
+
+
+def xyxy_to_xywha(points: torch.Tensor, explicit_angle=False):
+    """
+    Converts rectangular bbox from ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) to (x, y, width, height, angle).
+
+    :param points: Rectangle in ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) representation, sorted counterclockwise.
+    :param explicit_angle: Whether to compute angle explicitly.
+    :return: Rectangle in (x, y, width, height, angle) representation if explicit_angle=True,
+    (x, y, width, height, cos(angle), sin(angle)) if explicit_angle=False
+    The width is defined to be the larger side-length.
+    Angle lies in the range (-pi/2,pi/2].
+    """
+    x, y = torch.mean(points[:, 0]), torch.mean(points[:, 1])
+    v1, v2 = points[1] - points[0], points[2] - points[1]
+    if v1[0] < 0:
+        v1 = -v1
+    if v2[0] < 0:
+        v2 = -v2
+    v1_norm, v2_norm = torch.norm(v1), torch.norm(v2)
+    vmax = v1 if v1_norm > v2_norm else v2
+    w, h = (v1_norm, v2_norm) if v1_norm > v2_norm else (v2_norm, v1_norm)
+
+    if explicit_angle:
+        a = torch.atan(vmax[1] / vmax[0])  # Radians
+        return x, y, w, h, a
+    else:
+        d = torch.hypot(vmax[0], vmax[1])
+        c, s = vmax / d
+        return x, y, w, h, c, s
+
+
+def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
+    """
+    Computes square distance of each point which lies outside bbox from the nearest side of the bbox.
+    If point is inside bbox, returns 0.
+
+    :param points: (Tensor[N, 2]) Tensor of N Points.
+    :param box_points: (Tensor[D, 2]) Tensor of bbox with D vertices (D=4 for a rectangular bbox) in counterclockwise order.
+    :return: (Tensor[N]) The square distance of each point from the nearest side of the bbox.
+    """
+    device = points.device
+
+    if box_points.shape[0] != 4:
+        raise NotImplementedError
+
+    # Convert bbox from ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) to (x, y, w, h, angle)
+    x, y, w, h, c, s = xyxy_to_xywha(box_points)
+
+    # Move into the bbox coordinates
+    points_centered = points.clone()
+    points_centered[:, 0] -= x
+    points_centered[:, 1] -= y
+    points_trans = points_centered @ torch.Tensor([[c, -s], [s, c]])
+
+    # Compute distances
+    N = points.shape[0]
+    return (torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N)) ** 2
+            + torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N)) ** 2)
