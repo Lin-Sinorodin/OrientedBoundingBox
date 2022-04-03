@@ -310,12 +310,12 @@ def xyxy_to_xywha(points: torch.Tensor, explicit_angle=False):
 
 def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
     """
-    Computes square distance of each point which lies outside bbox from the nearest side of the bbox.
+    Computes distance of each point which lies outside bbox from the nearest side of the bbox.
     If point is inside bbox, returns 0.
 
     :param points: (Tensor[N, 2]) Tensor of N Points.
     :param box_points: (Tensor[D, 2]) Tensor of bbox with D vertices (D=4 for a rectangular bbox) in counterclockwise order.
-    :return: (Tensor[N]) The square distance of each point from the nearest side of the bbox.
+    :return: (Tensor[N]) The distance of each point from the nearest side of the bbox.
     """
     device = points.device
 
@@ -331,7 +331,8 @@ def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch
     points_centered[:, 1] -= y
     points_trans = points_centered @ torch.Tensor([[c, -s], [s, c]])
 
-    # Compute distances
+    # Compute distances (a small value is added for differentiability)
     N = points.shape[0]
-    return (torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N)) ** 2
-            + torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N)) ** 2)
+    eps = 1e-16
+    return torch.hypot(torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N)) + eps,
+                       torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N)) + eps)
