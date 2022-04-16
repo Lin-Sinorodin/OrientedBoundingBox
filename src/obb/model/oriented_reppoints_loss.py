@@ -54,13 +54,11 @@ class OBBPointAssigner:
         Returns:
             :obj:`AssignResult`: The assign results.
         """
-        assert gt_obboxes.size(1) == 8, 'gt_obboxes should be (N * 8)'
 
         scale = self.scale
         num_points = points.shape[0]
-        num_gts = gt_obboxes.shape[0]
 
-        if num_gts == 0 or num_points == 0:
+        if gt_obboxes.ndim == 1:
             # If no truth assign everything to the background
             assigned_gt_inds = points.new_full((num_points,), 0, dtype=torch.long)
             if gt_labels is None:
@@ -88,7 +86,7 @@ class OBBPointAssigner:
         assigned_gt_dist = points.new_full((num_points,), float('inf'))
         points_range = torch.arange(points.shape[0])
 
-        for idx in range(num_gts):
+        for idx in range(gt_obboxes.shape[0]):
             gt_lvl = gt_bboxes_lvl[idx]
 
             # get the index of points in this level
@@ -305,7 +303,10 @@ class OrientedRepPointsLoss(nn.Module):
 
         return centers_init, centers_refine
 
-    def _initialization_step_loss(self, rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init):
+    def _box_regression_loss(self, rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init):
+        if gt_obb.ndim == 1:
+            return 0
+
         # initialization stage assigner
         positive_samples_idx_init = torch.where(assigned_labels_init > 0)
         positive_assigned_gt_idxs_init = assigned_gt_idxs_init[positive_samples_idx_init]
@@ -313,7 +314,7 @@ class OrientedRepPointsLoss(nn.Module):
 
         # initialize losses with 0
         localization_loss = torch.zeros(1, dtype=torch.float, device=device)
-        spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
+        spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)
 
         # iterate over positive samples and add it's loss to the total loss
         for i, pred_points in enumerate(positive_rep_points_init):
@@ -327,16 +328,8 @@ class OrientedRepPointsLoss(nn.Module):
             localization_loss += giou_loss(gt_points, pred_points_convex_hull)
             spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)
 
-        return (self.init_localization_weight * localization_loss
-                 + self.init_spatial_constraint_weight * spatial_constraint_loss)
-
-    def _refinement_step_loss(self):
-        # initialize losses with 0
-        localization_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
-        spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)  # TODO
-
-        return (self.refine_localization_weight * localization_loss +
-                self.refine_spatial_constraint_weight * spatial_constraint_loss)
+        return (self.init_localization_weight * localization_loss +
+                self.init_spatial_constraint_weight * spatial_constraint_loss)
 
     def get_loss(
             self,
@@ -370,17 +363,11 @@ class OrientedRepPointsLoss(nn.Module):
         # initialization step
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
         classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
-        initialization_loss = self._initialization_step_loss(
+        box_regression_loss = self._box_regression_loss(
             rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
         )
 
-        # refinement_step
-        assigned_gt_idxs_refine, assigned_labels_refine = self.refine_assigner.assign(
-            rep_points_refine, gt_obb, gt_labels
-        )
-        refinement_loss = self._refinement_step_loss()
-
-        return classification_loss + initialization_loss + refinement_loss
+        return classification_loss + box_regression_loss
 
 
 if __name__ == '__main__':
@@ -391,6 +378,10 @@ if __name__ == '__main__':
     gt_labels_ = torch.tensor([3, 1])
     gt_obboxes_ = torch.tensor([[1, 1, 1, 10, 10, 10, 10, 1],
                                 [10, 10, 10, 50, 50, 50, 50, 10]])
+
+    # fake empty ground truth data
+    # gt_labels_ = torch.tensor([])
+    # gt_obboxes_ = torch.tensor([])
 
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
