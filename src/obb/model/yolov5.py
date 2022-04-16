@@ -9,10 +9,10 @@ class YOLOv5Features(nn.Module):
         self.weights_dir = weights_dir
         self.requires_grad = requires_grad
         # self.weights_path = f'{self.weights_dir}/best.pt'
-        self.weights_path = 'yolov5.pt'
+        self.weights_path = './yolov5.pt'
 
         self.model = self._load_model()
-        self.model_sequential = list(list(self.model.children())[0].children())[0]
+        self.model_sequential = list(list(list(self.model.children())[0].children())[0].children())[0]
         self.prev_layers = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, [-1, 6], -1, -1,
                             -1, [-1, 4], -1, -1, [-1, 14], -1, -1, [-1, 10], -1, [17, 20, 23]]
 
@@ -26,11 +26,6 @@ class YOLOv5Features(nn.Module):
 
     def _load_model(self):
         model = torch.hub.load('ultralytics/yolov5', 'custom', self.weights_path)
-
-        # the pretrained model doesn't run on cpu, so use yolov5s for debug on cpu (temp)
-        if torch.cuda.is_available() is False:
-            print('Running on CPU - not using pretrained weights')
-            model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 
         for k, v in model.named_parameters():
             v.requires_grad = self.requires_grad
@@ -53,9 +48,12 @@ class YOLOv5Features(nn.Module):
 
         P3, P4, P5 = [i for i in y if i is not None][-3:]
 
-        P3_resample = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1, bias=False)
-        P5_resample = nn.Conv2d(in_channels=512, out_channels=256, kernel_size=3, padding=1, bias=False)
+        P3_resample = nn.Conv2d(in_channels=192, out_channels=256, kernel_size=3, padding=1, bias=False)
+        P4_resample = nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, padding=1, bias=False)
+        P5_resample = nn.Conv2d(in_channels=768, out_channels=256, kernel_size=3, padding=1, bias=False)
+
         P3 = P3_resample(P3)
+        P4 = P4_resample(P4)
         P5 = P5_resample(P5)
 
         P3.stride = 4
