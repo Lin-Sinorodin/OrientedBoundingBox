@@ -329,10 +329,10 @@ def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch
     points_centered = points.clone()
     points_centered[:, 0] -= x
     points_centered[:, 1] -= y
-    points_trans = points_centered @ torch.Tensor([[c, -s], [s, c]])
+    points_trans = points_centered @ torch.Tensor([[c, -s], [s, c]], device=device)
 
     # Compute distances (a small value is added for differentiability)
     N = points.shape[0]
     eps = 1e-16
-    return torch.hypot(torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N)) + eps,
-                       torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N)) + eps)
+    return torch.hypot(torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N, device=device)) + eps,
+                       torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N, device=device)) + eps)
