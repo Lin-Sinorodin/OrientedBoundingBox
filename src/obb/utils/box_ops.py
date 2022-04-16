@@ -326,10 +326,10 @@ def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch
     x, y, w, h, c, s = xyxy_to_xywha(box_points)
 
     # Move into the bbox coordinates
-    points_centered = points.clone()
+    points_centered = points.clone().to(device)
     points_centered[:, 0] -= x
     points_centered[:, 1] -= y
-    points_trans = points_centered @ torch.Tensor([[c, -s], [s, c]], device=device)
+    points_trans = points_centered @ torch.tensor([[c, -s], [s, c]]).to(device)
 
     # Compute distances (a small value is added for differentiability)
     N = points.shape[0]
