@@ -55,10 +55,10 @@ class Label:
     def __init__(self, path):
         self.path = path
         self._dota_raw_label = self._load_from_dota()
-        self.xyxy = self._xyxy_from_raw_label()
-        self.xywha = self._xyxy_to_xywha()
-        self.objects_class = self._objects_class_from_raw_label()
-        self.objects_class_name = self._objects_class_name_from_raw_label()
+        self.xyxy = self._xyxy_from_raw_label() if not self.empty else None
+        self.xywha = self._xyxy_to_xywha() if not self.empty else None
+        self.objects_class = self._objects_class_from_raw_label() if not self.empty else None
+        self.objects_class_name = self._objects_class_name_from_raw_label() if not self.empty else None
 
     def _load_from_dota(self) -> np.array:
         """Load the raw data from DOTA dataset"""
@@ -66,6 +66,10 @@ class Label:
             raw_label = f.read().split('\n')[:-1]
             raw_label = [line.split(' ') for line in raw_label if line[0].isdigit()]
             return np.array(raw_label)
+
+    @property
+    def empty(self):
+        return self._dota_raw_label.ndim != 2
 
     def _xyxy_from_raw_label(self) -> np.array:
         """Convert raw DOTA label to ((x1, y1), (x2, y2), (x3, y3), (x4, y4))"""
@@ -130,9 +134,12 @@ class Dataset(torch.utils.data.Dataset):
 
     def _get_label(self, idx: int) -> Tuple[torch.tensor, torch.tensor]:
         label = Label(self.labels_paths[idx])
-        obb = label.xyxy if self.obb_format == 'xyxy' else label.xywha
-        objects_class = label.objects_class
-        return torch.tensor(obb), torch.tensor(objects_class)
+        if label.empty:
+            return torch.tensor([]), torch.tensor([])
+        else:
+            obb = label.xyxy if self.obb_format == 'xyxy' else label.xywha
+            objects_class = label.objects_class
+            return torch.tensor(obb), torch.tensor(objects_class)
 
     def __len__(self):
         return len(self.images_names)
@@ -146,18 +153,18 @@ class Dataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    train_dataset = Dataset(path='../../../assets/DOTA_sample_data/train')
+    train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 
     # get one sample
-    img, obb, object_class = next(iter(train_data_loader))
-    print(f'img.shape = {img.shape}')
-    print(f'obb.shape = {obb.shape}')
-    print(f'object_class.shape = {object_class.shape}')
+    # img, obb, object_class = next(iter(train_data_loader))
+    # print(f'img.shape = {img.shape}')
+    # print(f'obb.shape = {obb.shape}')
+    # print(f'object_class.shape = {object_class.shape}')
 
     # iterate over all dataset
     for img, obb, object_class in train_data_loader:
         print(f'img.shape = {img.shape}')
         print(f'obb.shape = {obb.shape}')
         print(f'object_class.shape = {object_class.shape}')
-        break
+        print('')
