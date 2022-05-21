@@ -80,7 +80,7 @@ class OBBPointAssigner:
         gt_bboxes_lvl = torch.clamp(gt_bboxes_lvl, min=lvl_min, max=lvl_max)
 
         # stores the assigned gt index of each point
-        assigned_gt_inds = points.new_zeros((num_points,), dtype=torch.long)
+        assigned_gt_inds = points.new_zeros((num_points,), dtype=torch.long).to(device)
 
         # stores the assigned gt dist (to this point) of each point
         assigned_gt_dist = points.new_full((num_points,), float('inf'))
@@ -94,8 +94,8 @@ class OBBPointAssigner:
             points_index = points_range[lvl_idx]
 
             lvl_points = points_xy[lvl_idx, :]
-            gt_center_point = gt_bboxes_xy[[idx], :]
-            gt_wh = gt_bboxes_wh[[idx], :]
+            gt_center_point = gt_bboxes_xy[[idx], :].to(device)
+            gt_wh = gt_bboxes_wh[[idx], :].to(device)
 
             # compute the distance between gt center and all points in this level
             points_gt_dist = ((lvl_points - gt_center_point) / gt_wh).norm(dim=1)
@@ -120,8 +120,9 @@ class OBBPointAssigner:
             assigned_gt_dist[min_dist_points_index] = min_dist[less_than_recorded_index]
 
         if gt_labels is not None:
-            assigned_labels = assigned_gt_inds.new_zeros((num_points,))
-            pos_inds = torch.nonzero(assigned_gt_inds > 0).squeeze()
+            gt_labels = gt_labels.to(device)
+            assigned_labels = assigned_gt_inds.new_zeros((num_points,)).to(device)
+            pos_inds = torch.nonzero(assigned_gt_inds > 0).squeeze().to(device)
             if pos_inds.numel() > 0:
                 assigned_labels[pos_inds] = gt_labels[assigned_gt_inds[pos_inds] - 1]
         else:
@@ -131,7 +132,6 @@ class OBBPointAssigner:
 
 
 class OBBMaxIoUAssigner:
-
     """
     Assign a corresponding gt oriented bounding box or background to each oriented reppoints.
 
@@ -158,7 +158,8 @@ class OBBMaxIoUAssigner:
 
     @staticmethod
     def convex_overlaps(gt_obb, rep_points):
-        rep_points_hull = [convex_hull(points.reshape(-1, 2)) for points in rep_points]
+        # rep_points_hull = [convex_hull(points.reshape(-1, 2)) for points in rep_points]
+        rep_points_hull = convex_hull(rep_points)
 
         iou_matrix_rows = []
         for gt_points in gt_obb:
@@ -171,7 +172,7 @@ class OBBMaxIoUAssigner:
         return iou_matrix
 
     def assign(self, points, gt_obb, gt_labels=None):
-        overlaps = self.convex_overlaps(gt_obb, points)
+        overlaps = self.convex_overlaps(gt_obb, points[:, :-1])  # Without stride
         num_gts, num_rep_points_obb = overlaps.size(0), overlaps.size(1)
 
         # 1. assign -1 by default
@@ -225,6 +226,8 @@ class OBBMaxIoUAssigner:
 
 
 def giou_loss(gt_points, pred_points):
+    gt_points = gt_points.to(device)
+
     intersection_points = polygon_intersection(gt_points, pred_points)
     poly1_area = polygon_area(pred_points)
     poly2_area = polygon_area(gt_points)
@@ -257,7 +260,8 @@ class OrientedRepPointsLoss(nn.Module):
         self.refine_spatial_constraint_weight = 0.1
 
         self.init_assigner = OBBPointAssigner()
-        self.refine_assigner = OBBMaxIoUAssigner()
+        # TODO switch to OBBMaxIoUAssigner ASAP
+        self.refine_assigner = OBBPointAssigner()
 
     def _flatten_head_output(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
         """Convert the output of Oriented Rep Points head from dicts to tensors for loss calculation"""
@@ -363,21 +367,50 @@ class OrientedRepPointsLoss(nn.Module):
         # initialization step
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
         classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
-        box_regression_loss = self._box_regression_loss(
+        box_regression_init_loss = self._box_regression_loss(
             rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
         )
 
-        return classification_loss + box_regression_loss
+        # refinement_step
+        assigned_gt_idxs_refine, assigned_labels_refine = self.refine_assigner.assign(centers_refine, gt_obb, gt_labels)
+        box_regression_refine_loss = self._box_regression_loss(
+            rep_points_refine, gt_obb, assigned_gt_idxs_refine, assigned_labels_refine
+        )
+
+        # divide by total number of positive samples
+        num_pos_init = torch.count_nonzero(assigned_labels_init)
+        num_pos_refine = torch.count_nonzero(assigned_labels_refine)
+        if num_pos_init > 0:
+            box_regression_init_loss /= torch.count_nonzero(assigned_labels_init)
+        if num_pos_refine > 0:
+            box_regression_refine_loss /= torch.count_nonzero(assigned_labels_refine)
+
+        # ReLU to solve divergent loss + ignore NaNs
+        if type(classification_loss) != int:
+            classification_loss = torch.relu(classification_loss)
+            if torch.isnan(classification_loss):
+                classification_loss = torch.zeros(1)
+        if type(box_regression_init_loss) != int:
+            box_regression_init_loss = torch.relu(box_regression_init_loss)
+            if torch.isnan(box_regression_init_loss):
+                box_regression_init_loss = torch.zeros(1)
+        if type(box_regression_refine_loss) != int:
+            box_regression_refine_loss = torch.relu(box_regression_refine_loss)
+            if torch.isnan(box_regression_refine_loss):
+                box_regression_refine_loss = torch.zeros(1)
+
+        return classification_loss + box_regression_init_loss + box_regression_refine_loss, \
+            classification_loss, box_regression_init_loss, box_regression_refine_loss
 
 
 if __name__ == '__main__':
-    model = DetectionModel()
-    img_in = torch.rand(1, 3, 256, 256)
+    model = DetectionModel().to(device)
+    img_in = torch.rand(1, 3, 256, 256).to(device)
 
     # fake ground truth data
-    gt_labels_ = torch.tensor([3, 1])
+    gt_labels_ = torch.tensor([3, 1]).to(device)
     gt_obboxes_ = torch.tensor([[1, 1, 1, 10, 10, 10, 10, 1],
-                                [10, 10, 10, 50, 50, 50, 50, 10]])
+                                [10, 10, 10, 50, 50, 50, 50, 10]]).to(device)
 
     # fake empty ground truth data
     # gt_labels_ = torch.tensor([])
@@ -386,8 +419,11 @@ if __name__ == '__main__':
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
-    loss = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
-    print(loss)
+    loss, cls_loss, reg_init_loss, reg_refine_loss = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_,
+                                                                              classification_, gt_obboxes_, gt_labels_)
+
+    # print(torch.max(classification_['P5'], dim=1))
+    # print(loss, cls_loss, reg_init_loss, reg_refine_loss, sep='\n')
 
     torch.autograd.set_detect_anomaly(True)
 

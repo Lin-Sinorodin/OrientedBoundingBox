@@ -76,7 +76,7 @@ class OrientedRepPointsHead(nn.Module):
 
     def forward(self, feature: torch.tensor):
         # get offsets
-        localization_features = self.localization_conv(feature)
+        localization_features = self.localization_conv(feature).to(device)
         offset1 = self.points_init_offset_conv(
             self.relu(self.points_init_conv(localization_features))
         )
@@ -85,7 +85,7 @@ class OrientedRepPointsHead(nn.Module):
         )
 
         # get points classification
-        classification_features = self.classification_conv(feature)
+        classification_features = self.classification_conv(feature).to(device)
         classification = self.classification_conv_out(
             self.relu(self.classification_deform_conv(input=classification_features, offset=offset1))
         )

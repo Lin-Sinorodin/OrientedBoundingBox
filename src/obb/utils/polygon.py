@@ -177,7 +177,7 @@ def polygon_intersection(gt_polygon: torch.Tensor, clipping_polygon: torch.Tenso
         for j in range(len(next_polygon)):
             # these two vertices define a line segment (edge) in the subject polygon
             s_edge_start = next_polygon[j - 1]
-            s_edge_end = next_polygon[j]
+            s_edge_end = next_polygon[j].to(device)
 
             if cross(c_edge_start, c_edge_end, s_edge_end) <= 0:
                 if cross(c_edge_start, c_edge_end, s_edge_start) > 0:

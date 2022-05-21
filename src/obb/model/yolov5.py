@@ -76,6 +76,6 @@ if __name__ == '__main__':
 
     for img, obb, object_class in train_data_loader:
         P3, P4, P5 = yolov5(img)
-        print(f'{P3.shape = }, {P3.stride = }\n{P4.shape = }, {P4.stride = }\n{P5.shape = }, {P5.stride = }')
+        print(f'{P3.shape}, {P3.stride}\n{P4.shape}, {P4.stride}\n{P5.shape}, {P5.stride}')
         break
 
