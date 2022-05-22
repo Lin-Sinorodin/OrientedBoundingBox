@@ -4,6 +4,7 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 class YOLOv5Features(nn.Module):
     def __init__(self, weights_dir='weights', requires_grad=False):
         super().__init__()
@@ -78,4 +79,3 @@ if __name__ == '__main__':
         P3, P4, P5 = yolov5(img)
         print(f'{P3.shape}, {P3.stride}\n{P4.shape}, {P4.stride}\n{P5.shape}, {P5.stride}')
         break
-

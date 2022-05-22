@@ -4,14 +4,11 @@ import torch.nn as nn
 
 from obb.model.yolov5 import YOLOv5Features
 from obb.model.oriented_reppoints import OrientedRepPointsHead
-from obb.model.feature_map import FeatureMap, BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS
 
 
 class DetectionModel(nn.Module):
     def __init__(self):
         super().__init__()
-        # self.feature_map = FeatureMap(BACKBONE, NECK, REMEMBER_LAYERS, NUM_FEATURE_MAPS)
-        # self.feature_map_strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
         self.feature_map = YOLOv5Features()
         self.feature_map_strides = {'P3': 4, 'P4': 8, 'P5': 16}
         self.oriented_rep_points_head = OrientedRepPointsHead(num_offsets=9, num_classes=15)

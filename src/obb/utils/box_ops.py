@@ -2,7 +2,6 @@
 Utilities for oriented bounding box manipulation and GIoU.
 Credit: https://github.com/jw9730/ori-giou
 """
-import math
 import torch
 
 

@@ -153,21 +153,21 @@ class Dataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    # train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
     dataset_downloader.download_data_from_drive()
-    # train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
-    # train_data_loader.download_data_from_drive()
+
+    train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
+    train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 
     # get one sample
-    # img, obb, object_class = next(iter(train_data_loader))
-    # print(f'img.shape = {img.shape}')
-    # print(f'obb.shape = {obb.shape}')
-    # print(f'object_class.shape = {object_class.shape}')
+    img, obb, object_class = next(iter(train_data_loader))
+    print(f'img.shape = {img.shape}')
+    print(f'obb.shape = {obb.shape}')
+    print(f'object_class.shape = {object_class.shape}')
 
     # iterate over all dataset
-    # for img, obb, object_class in train_data_loader:
-    #     print(f'img.shape = {img.shape}')
-    #     print(f'obb.shape = {obb.shape}')
-    #     print(f'object_class.shape = {object_class.shape}')
-    #     print('')
+    for img, obb, object_class in train_data_loader:
+        print(f'img.shape = {img.shape}')
+        print(f'obb.shape = {obb.shape}')
+        print(f'object_class.shape = {object_class.shape}')
+        print('')
