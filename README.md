@@ -6,7 +6,6 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)
 
 [![Tests](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml/badge.svg)](https://github.com/Lin-Sinorodin/OrientedBoundingBox/actions/workflows/tests.yaml)
-[![CodeFactor](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox/badge)](https://www.codefactor.io/repository/github/lin-sinorodin/OrientedBoundingBox)
 [![PEP8](https://img.shields.io/badge/code%20style-pep8-orange.svg)](https://www.python.org/dev/peps/pep-0008/)
 
 </div>
