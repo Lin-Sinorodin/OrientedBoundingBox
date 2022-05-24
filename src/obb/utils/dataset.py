@@ -7,14 +7,13 @@ import torch
 import torch.utils.data
 from typing import List, Tuple
 
-DOTA_V1_5_NAMES = [
+DOTA_V1_0_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',
     'large-vehicle', 'ship', 'tennis-court', 'basketball-court', 'storage-tank',
-    'soccer-ball-field', 'roundabout', 'harbor', 'swimming-pool', 'helicopter',
-    'container-crane'
+    'soccer-ball-field', 'roundabout', 'harbor', 'swimming-pool', 'helicopter'
 ]
 
-DOTA_NAME_TO_INT = {name: idx for idx, name in enumerate(DOTA_V1_5_NAMES)}
+DOTA_NAME_TO_INT = {name: idx + 1 for idx, name in enumerate(DOTA_V1_0_NAMES)}
 
 
 class DatasetDownloader:

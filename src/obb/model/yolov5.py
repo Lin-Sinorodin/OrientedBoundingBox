@@ -59,9 +59,9 @@ class YOLOv5Features(nn.Module):
         P4 = self.P4_resample(P4)
         P5 = self.P5_resample(P5)
 
-        P3.stride = 4
-        P4.stride = 8
-        P5.stride = 16
+        P3.stride = 8
+        P4.stride = 16
+        P5.stride = 32
 
         return P3, P4, P5
 
@@ -73,9 +73,11 @@ if __name__ == '__main__':
     train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 
-    yolov5 = YOLOv5Features()
+    yolov5 = YOLOv5Features().to(device)
 
     for img, obb, object_class in train_data_loader:
+        img = img.to(device)
+        print(img.shape)
         P3, P4, P5 = yolov5(img)
         print(f'{P3.shape}, {P3.stride}\n{P4.shape}, {P4.stride}\n{P5.shape}, {P5.stride}')
         break

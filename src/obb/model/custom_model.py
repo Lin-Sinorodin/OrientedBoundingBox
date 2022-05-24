@@ -4,13 +4,15 @@ import torch.nn as nn
 
 from obb.model.yolov5 import YOLOv5Features
 from obb.model.oriented_reppoints import OrientedRepPointsHead
+from obb.model.oriented_reppoints import rep_point_to_img_space
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class DetectionModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.feature_map = YOLOv5Features()
-        self.feature_map_strides = {'P3': 4, 'P4': 8, 'P5': 16}
+        self.feature_map = YOLOv5Features().to(device)
+        self.feature_map_strides = {'P3': 8, 'P4': 16, 'P5': 32}
         self.oriented_rep_points_head = OrientedRepPointsHead(num_offsets=9, num_classes=15)
 
     def forward(self, x):
@@ -21,18 +23,19 @@ class DetectionModel(nn.Module):
         # get rep points and classification from detection head
         rep_points_init, rep_points_refine, classifications = {}, {}, {}
         for feature_map_name, feature_map in feature_maps.items():
+            stride = self.feature_map_strides[feature_map_name]
             curr_points_init, curr_points_refine, classification = self.oriented_rep_points_head(feature_map)
-            rep_points_init[feature_map_name] = curr_points_init
-            rep_points_refine[feature_map_name] = curr_points_refine
+            rep_points_init[feature_map_name] = rep_point_to_img_space(curr_points_init, stride)
+            rep_points_refine[feature_map_name] = rep_point_to_img_space(curr_points_refine, stride)
             classifications[feature_map_name] = classification
 
         return rep_points_init, rep_points_refine, classifications
 
 
 if __name__ == '__main__':
-    model = DetectionModel()
-    img_in = torch.rand(1, 3, 160, 160)
-    result = model(img_in)
+    model = DetectionModel().to(device)
+    img_in = torch.rand(1, 3, 512, 512).to(device)
+    rep_points_init, rep_points_refine, classifications = model(img_in)
 
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     params = sum([np.prod(p.size()) for p in model_parameters])

@@ -43,7 +43,7 @@ def rep_point_to_img_space(feature_space_tensor: torch.tensor, stride: int) -> t
     :param stride: the stride of the current feature map is the scale between feature space and image space
     :return: the input tensor in the image space
     """
-    return torch.tensor([stride]).reshape(1, -1, 1, 1) * feature_space_tensor
+    return torch.tensor([stride]).reshape(1, -1, 1, 1).to(device) * feature_space_tensor
 
 
 class OrientedRepPointsHead(nn.Module):
@@ -55,7 +55,7 @@ class OrientedRepPointsHead(nn.Module):
         # classification subnet
         self.classification_conv = self._get_features_subnet()
         self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
-        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes, **self.conv_params)
+        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes + 1, **self.conv_params)
 
         # localization subnet
         self.localization_conv = self._get_features_subnet()
@@ -101,8 +101,8 @@ if __name__ == "__main__":
     img_h, img_w = (512, 512)
     batch_size = 2
     features_per_map = 256
-    strides = {'P2': 4, 'P3': 8, 'P4': 16, 'P5': 32}
-    feature_maps = {name: torch.rand(batch_size, features_per_map, img_h // stride, img_w // stride)
+    strides = {'P3': 8, 'P4': 16, 'P5': 32}
+    feature_maps = {name: torch.rand(batch_size, features_per_map, img_h // stride, img_w // stride).to(device)
                     for name, stride in strides.items()}
 
     rotated_RepPoints_head = OrientedRepPointsHead().to(device)
