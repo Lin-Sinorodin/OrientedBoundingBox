@@ -18,7 +18,7 @@ class OBBPointAssigner:
     Source:
         https://github.com/LiWentomng/OrientedRepPoints/blob/main/mmdet/core/bbox/assigners/oriented_point_assigner.py
 
-    Each proposals will be assigned with `0`, or a positive integer indicating the ground truth index.
+    Each proposal will be assigned with `0`, or a positive integer indicating the ground truth index.
     - 0: negative sample, no assigned gt
     - positive integer: positive sample, index (1-based) of assigned gt
     """
@@ -240,6 +240,7 @@ def giou_loss(gt_points, pred_points):
     giou = iou - (all_points_area - union_area) / (all_points_area + 1e-16)
     return 1 - giou
 
+
 def out_of_box_loss(gt_points, pred_points):
     dists = out_of_box_distance(pred_points, gt_points)
     return torch.mean(dists)
@@ -440,8 +441,8 @@ class OrientedRepPointsLoss(nn.Module):
         precision_pos = tp / p if p != 0 else torch.Tensor([0]).to(device)
         precision_neg = tn / n if n != 0 else torch.Tensor([0]).to(device)
 
-        return classification_loss + box_regression_init_loss + box_regression_refine_loss, \
-               classification_loss, box_regression_init_loss, box_regression_refine_loss, precision_pos, precision_neg
+        return (classification_loss + box_regression_init_loss + box_regression_refine_loss,
+                classification_loss, box_regression_init_loss, box_regression_refine_loss, precision_pos, precision_neg)
 
 
 if __name__ == '__main__':
@@ -461,8 +462,7 @@ if __name__ == '__main__':
 
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
     loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg = rep_points_loss.get_loss(
-        rep_points_init_, rep_points_refine_,
-        classification_, gt_obboxes_, gt_labels_)
+        rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
 
     # print(torch.max(classification_['P5'], dim=1))
     print(loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg, sep='\n')
