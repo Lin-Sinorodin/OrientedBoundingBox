@@ -98,12 +98,13 @@ class Label:
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, path: str, obb_format: str = 'xyxy'):
+    def __init__(self, path: str, obb_format: str = 'xyxy', return_features: bool = False):
         obb_formats = ['xyxy', 'xywha']
         assert obb_format in obb_formats, f'Unknown obb format: {obb_format}. Available formats: {obb_formats}'
 
         self.path = path
         self.obb_format = obb_format
+        self.return_features = return_features
 
         self.images_dir = '/'.join([self.path, 'images'])
         self.labels_dir = '/'.join([self.path, 'labelTxt'])
@@ -132,63 +133,14 @@ class Dataset(torch.utils.data.Dataset):
     def _get_image(self, idx: int) -> torch.tensor:
         return torchvision.io.read_image(self.images_paths[idx]) / 255.
 
-    def _get_label(self, idx: int) -> Tuple[torch.tensor, torch.tensor]:
-        label = Label(self.labels_paths[idx])
-        if label.empty:
-            return torch.tensor([]), torch.tensor([])
-        else:
-            obb = label.xyxy if self.obb_format == 'xyxy' else label.xywha
-            objects_class = label.objects_class
-            return torch.tensor(obb), torch.tensor(objects_class)
-
-    def __len__(self):
-        return len(self.images_names)
-
-    def __getitem__(self, idx: int):
-        img = self._get_image(idx)
-        obb, objects_class = self._get_label(idx)
-        return img, obb, objects_class
-
-
-class DatasetFeatures(torch.utils.data.Dataset):
-    def __init__(self, path: str, obb_format: str = 'xyxy'):
-        obb_formats = ['xyxy', 'xywha']
-        assert obb_format in obb_formats, f'Unknown obb format: {obb_format}. Available formats: {obb_formats}'
-
-        self.path = path
-        self.obb_format = obb_format
-
-        self.images_dir = '/'.join([self.path, 'images'])
-        self.labels_dir = '/'.join([self.path, 'labelTxt'])
-        self.features_dir = '/'.join([self.path, 'images/features'])
-        self.images_names, self.labels_names = self._get_matching_image_label()
-        self.images_paths, self.labels_paths = self._get_matches_paths()
-
-    def _get_matching_image_label(self) -> Tuple[List[str], List[str]]:
-        """Find the images that have a proper corresponding label file"""
-        images_names = [name.replace('.png', '') for name in os.listdir(self.images_dir)]
-        labels_names = [name.replace('.txt', '') for name in os.listdir(self.labels_dir)]
-
-        matching_images_names, matching_labels_names = [], []
-        for img_name in images_names:
-            if img_name in labels_names:
-                matching_images_names.append(f'{img_name}.png')
-                matching_labels_names.append(f'{img_name}.txt')
-
-        return matching_images_names, matching_labels_names
-
-    def _get_matches_paths(self) -> Tuple[List[str], List[str]]:
-        """from file names ['img1.png', ...] to full path ['path/to/img1.png']"""
-        images_paths = [f'{self.images_dir}/{file}' for file in self.images_names]
-        labels_paths = [f'{self.labels_dir}/{file}' for file in self.labels_names]
-        return images_paths, labels_paths
-
     def _get_features(self, idx: int) -> torch.tensor:
-        img_path = self.images_paths[idx]
-        img_name = img_path.split('/')[-1].replace('.png', '')
-        P3 = torch.load(f'{self.features_dir}/{img_name}_P3.pt')
-        P4 = torch.load(f'{self.features_dir}/{img_name}_P4.pt')
-        P5 = torch.load(f'{self.features_dir}/{img_name}_P5.pt')
+        features_dir = '/'.join([self.path, 'images/features'])
+        img_name = self.images_paths[idx].split('/')[-1].replace('.png', '')
+
+        P3 = torch.load(f'{features_dir}/{img_name}_P3.pt')
+        P4 = torch.load(f'{features_dir}/{img_name}_P4.pt')
+        P5 = torch.load(f'{features_dir}/{img_name}_P5.pt')
+
         return P3, P4, P5
 
     def _get_label(self, idx: int) -> Tuple[torch.tensor, torch.tensor]:
@@ -204,9 +156,13 @@ class DatasetFeatures(torch.utils.data.Dataset):
         return len(self.images_names)
 
     def __getitem__(self, idx: int):
-        P3, P4, P5 = self._get_features(idx)
         obb, objects_class = self._get_label(idx)
-        return P3, P4, P5, obb, objects_class
+        if self.return_features:
+            P3, P4, P5 = self._get_features(idx)
+            return P3, P4, P5, obb, objects_class
+        else:
+            img = self._get_image(idx)
+            return img, obb, objects_class
 
 
 if __name__ == '__main__':
@@ -231,7 +187,7 @@ if __name__ == '__main__':
         print(f'object_class.shape = {object_class.shape}')
         print('')
 
-    train_dataset_features = DatasetFeatures(path='../../../assets/DOTA_sample_data/split')
+    train_dataset_features = Dataset(path='../../../assets/DOTA_sample_data/split', return_features=True)
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 
     for P3, P4, P5, obb, objects_class in train_dataset_features:
