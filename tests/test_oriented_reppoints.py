@@ -19,4 +19,4 @@ def test_OrientedRepPointsHead():
         rep_points1_, rep_points2_, classification_ = rotated_RepPoints_head(feature_map)
         assert tuple(rep_points1_.shape) == (1, num_offsets * 2, feature_space_h, feature_space_w)
         assert tuple(rep_points2_.shape) == (1, num_offsets * 2, feature_space_h, feature_space_w)
-        assert tuple(classification_.shape) == (1, num_classes, feature_space_h, feature_space_w)
+        assert tuple(classification_.shape) == (1, num_classes + 1, feature_space_h, feature_space_w)
