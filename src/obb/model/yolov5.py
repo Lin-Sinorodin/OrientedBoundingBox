@@ -11,13 +11,7 @@ class YOLOv5Features(nn.Module):
         self.weights_dir = weights_dir
         self.requires_grad = requires_grad
         self.weights_path = self._download_weights()
-
         self.features = self._load_model()
-
-        conv_kwargs = {'kernel_size': 3, 'padding': 1, 'bias': False, 'device': device}
-        self.P3_resample = nn.Conv2d(in_channels=192, out_channels=256, **conv_kwargs)
-        self.P4_resample = nn.Conv2d(in_channels=384, out_channels=256, **conv_kwargs)
-        self.P5_resample = nn.Conv2d(in_channels=768, out_channels=256, **conv_kwargs)
 
     def _download_weights(self):
         """Download pretrained weights from: https://github.com/hukaixuan19970627/YOLOv5_DOTA_OBB"""
@@ -54,10 +48,6 @@ class YOLOv5Features(nn.Module):
             y.append(x if layer_idx in [4, 6, 10, 14, 17, 20, 23] else None)
 
         P3, P4, P5 = [i for i in y if i is not None][-3:]
-
-        P3 = self.P3_resample(P3)
-        P4 = self.P4_resample(P4)
-        P5 = self.P5_resample(P5)
 
         P3.stride = 8
         P4.stride = 16
