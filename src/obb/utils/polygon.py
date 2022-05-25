@@ -1,6 +1,8 @@
 import torch
 from math import pi
 
+from obb.utils.box_ops import cross
+
 
 def gen_random_clusters(num_clusters=10, points_per_cluster=9, im_dim=(256, 256), cluster_dim=(40, 40)):
     """ Generates a [B, N, 2] tensor with B clusters, N points each."""
@@ -37,18 +39,6 @@ def gen_random_clusters(num_clusters=10, points_per_cluster=9, im_dim=(256, 256)
         point_lst.append(points)
 
     return torch.stack(point_lst)  # [B, N, 2]
-
-
-def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.tensor:
-    """
-    2D cross product of OA and OB vectors, i.e. z-component of their 3D cross product.
-
-    :param o: point O for OA and OB vector.
-    :param a: point A for OA vector.
-    :param b: point B for OB vector.
-    :return: positive if OAB makes a counter-clockwise turn, negative for clockwise, zero if the points are collinear.
-    """
-    return (a[..., 0] - o[..., 0]) * (b[..., 1] - o[..., 1]) - (a[..., 1] - o[..., 1]) * (b[..., 0] - o[..., 0])
 
 
 def _angle_to_point(point, center):

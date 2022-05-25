@@ -3,7 +3,7 @@ This is an implementation of the paper GGHL:
     'A General Gaussian Heatmap Labeling for Arbitrary-Oriented Object Detection'
 """
 import numpy as np
-from obb.utils import Gaussian2D
+from obb.not_used.gaussian import Gaussian2D
 
 
 class OLA:
