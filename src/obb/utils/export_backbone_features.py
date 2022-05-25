@@ -1,6 +1,7 @@
 import os
 import torch
 import torchvision
+from tqdm import tqdm
 
 from obb.model.yolov5 import YOLOv5Features
 
@@ -11,7 +12,7 @@ def export_yolov5_features(path):
     yolov5 = YOLOv5Features('../model/weights').to(device)
     os.makedirs(f'{path}/features', exist_ok=True)
 
-    for img_file in os.listdir(path):
+    for img_file in tqdm(os.listdir(path), unit='img'):
         if not (img_file.endswith('png') or img_file.endswith('jpg')):
             continue
 

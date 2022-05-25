@@ -8,3 +8,4 @@ torchtyping
 torchvision
 opencv-python
 setuptools
+tqdm
