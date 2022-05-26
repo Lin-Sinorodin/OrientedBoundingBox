@@ -5,6 +5,7 @@ import shutil
 import numpy as np
 import torch
 import torch.utils.data
+import torchvision
 from typing import List, Tuple
 
 DOTA_V1_0_NAMES = [
@@ -97,12 +98,13 @@ class Label:
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, path: str, obb_format: str = 'xyxy'):
+    def __init__(self, path: str, obb_format: str = 'xyxy', return_features: bool = False):
         obb_formats = ['xyxy', 'xywha']
         assert obb_format in obb_formats, f'Unknown obb format: {obb_format}. Available formats: {obb_formats}'
 
         self.path = path
         self.obb_format = obb_format
+        self.return_features = return_features
 
         self.images_dir = '/'.join([self.path, 'images'])
         self.labels_dir = '/'.join([self.path, 'labelTxt'])
@@ -129,7 +131,17 @@ class Dataset(torch.utils.data.Dataset):
         return images_paths, labels_paths
 
     def _get_image(self, idx: int) -> torch.tensor:
-        return torch.tensor(cv2.imread(self.images_paths[idx])[..., ::-1] / 255).permute(2, 0, 1).float()
+        return torchvision.io.read_image(self.images_paths[idx]) / 255.
+
+    def _get_features(self, idx: int) -> torch.tensor:
+        features_dir = '/'.join([self.path, 'images/features'])
+        img_name = self.images_paths[idx].split('/')[-1].replace('.png', '')
+
+        P3 = torch.load(f'{features_dir}/{img_name}_P3.pt')
+        P4 = torch.load(f'{features_dir}/{img_name}_P4.pt')
+        P5 = torch.load(f'{features_dir}/{img_name}_P5.pt')
+
+        return P3, P4, P5
 
     def _get_label(self, idx: int) -> Tuple[torch.tensor, torch.tensor]:
         label = Label(self.labels_paths[idx])
@@ -144,16 +156,20 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.images_names)
 
     def __getitem__(self, idx: int):
-        img = self._get_image(idx)
         obb, objects_class = self._get_label(idx)
-        return img, obb, objects_class
+        if self.return_features:
+            P3, P4, P5 = self._get_features(idx)
+            return P3, P4, P5, obb, objects_class
+        else:
+            img = self._get_image(idx)
+            return img, obb, objects_class
 
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
-    dataset_downloader.download_data_from_drive()
+    # dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
+    # dataset_downloader.download_data_from_drive()
 
     train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
@@ -170,3 +186,9 @@ if __name__ == '__main__':
         print(f'obb.shape = {obb.shape}')
         print(f'object_class.shape = {object_class.shape}')
         print('')
+
+    train_dataset_features = Dataset(path='../../../assets/DOTA_sample_data/split', return_features=True)
+    train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
+
+    for P3, P4, P5, obb, objects_class in train_dataset_features:
+        print(P3.shape, P4.shape, P5.shape)

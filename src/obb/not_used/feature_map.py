@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from obb.model import common
+from obb.not_used import common
 from typing import List, Union
 
 BACKBONE = [

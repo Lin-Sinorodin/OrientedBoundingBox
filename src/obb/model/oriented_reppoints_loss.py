@@ -21,7 +21,7 @@ class OBBPointAssigner:
     Source:
         https://github.com/LiWentomng/OrientedRepPoints/blob/main/mmdet/core/bbox/assigners/oriented_point_assigner.py
 
-    Each proposals will be assigned with `0`, or a positive integer indicating the ground truth index.
+    Each proposal will be assigned with `0`, or a positive integer indicating the ground truth index.
     - 0: negative sample, no assigned gt
     - positive integer: positive sample, index (1-based) of assigned gt
     """
@@ -362,9 +362,8 @@ class OrientedRepPointsLoss(nn.Module):
 
             # ground truth obb for the current rep points
             gt_box_idx = int(positive_assigned_gt_idxs_init[i]) - 1
-            gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float()
+            gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float().to(device)
             gt_points.requires_grad = False
-
             pred_points_convex_hull = convex_hull(pred_points)
             localization_loss += giou_loss(gt_points, pred_points_convex_hull)
             spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)
@@ -407,7 +406,8 @@ class OrientedRepPointsLoss(nn.Module):
 
         # initialization step
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
-        classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=5, reduction='mean')
+        classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
+        classification_loss *= self.classification_weight
         localization_init_loss, spatial_constraint_init_loss = self._box_regression_loss(
             rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
         )
@@ -426,15 +426,15 @@ class OrientedRepPointsLoss(nn.Module):
         if type(classification_loss) != int:
             classification_loss = torch.relu(classification_loss)
             if torch.isnan(classification_loss):
-                classification_loss = torch.zeros(1)
+                classification_loss = torch.zeros(1).to(device)
         if type(box_regression_init_loss) != int:
             box_regression_init_loss = torch.relu(box_regression_init_loss)
             if torch.isnan(box_regression_init_loss):
-                box_regression_init_loss = torch.zeros(1)
+                box_regression_init_loss = torch.zeros(1).to(device)
         if type(box_regression_refine_loss) != int:
             box_regression_refine_loss = torch.relu(box_regression_refine_loss)
             if torch.isnan(box_regression_refine_loss):
-                box_regression_refine_loss = torch.zeros(1)
+                box_regression_refine_loss = torch.zeros(1).to(device)
 
         # confusion matrix precision/recall metrics for every class
         classification_hard = torch.argmax(classification, dim=1)
@@ -470,13 +470,12 @@ if __name__ == '__main__':
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
-    loss, loss_dict = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_,
-                                               classification_, gt_obboxes_, gt_labels_)
+    loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg = rep_points_loss.get_loss(
+        rep_points_init_, rep_points_refine_,
+        classification_, gt_obboxes_, gt_labels_)
 
-    print(loss_dict['classification'], loss_dict['regression_init'], loss_dict['regression_refine'])
-    print([f'{prc_cls:.4f}' for prc_cls in loss_dict['precision']])
-    print([f'{rcl_cls:.4f}' for rcl_cls in loss_dict['recall']])
-    print(loss_dict['confusion_matrix'])
+    # print(torch.max(classification_['P5'], dim=1))
+    print(loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg, sep='\n')
 
     torch.autograd.set_detect_anomaly(True)
 
