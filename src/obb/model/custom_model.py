@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from typing import Optional
 
 from obb.model.yolov5 import YOLOv5Features
 from obb.model.oriented_reppoints import OrientedRepPointsHead
@@ -9,8 +10,51 @@ from obb.model.oriented_reppoints import rep_point_to_img_space
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
+def get_pretrained_state_dict(path):
+    state_dict_mapper = {
+        'bbox_head.cls_convs.0.conv.weight': 'classification_conv.0.weight',
+        'bbox_head.cls_convs.0.gn.weight': 'classification_conv.1.weight',
+        'bbox_head.cls_convs.0.gn.bias': 'classification_conv.1.bias',
+        'bbox_head.cls_convs.1.conv.weight': 'classification_conv.2.weight',
+        'bbox_head.cls_convs.1.gn.weight': 'classification_conv.3.weight',
+        'bbox_head.cls_convs.1.gn.bias': 'classification_conv.3.bias',
+        'bbox_head.cls_convs.2.conv.weight': 'classification_conv.4.weight',
+        'bbox_head.cls_convs.2.gn.weight': 'classification_conv.5.weight',
+        'bbox_head.cls_convs.2.gn.bias': 'classification_conv.5.bias',
+        'bbox_head.reg_convs.0.conv.weight': 'localization_conv.0.weight',
+        'bbox_head.reg_convs.0.gn.weight': 'localization_conv.1.weight',
+        'bbox_head.reg_convs.0.gn.bias': 'localization_conv.1.bias',
+        'bbox_head.reg_convs.1.conv.weight': 'localization_conv.2.weight',
+        'bbox_head.reg_convs.1.gn.weight': 'localization_conv.3.weight',
+        'bbox_head.reg_convs.1.gn.bias': 'localization_conv.3.bias',
+        'bbox_head.reg_convs.2.conv.weight': 'localization_conv.4.weight',
+        'bbox_head.reg_convs.2.gn.weight': 'localization_conv.5.weight',
+        'bbox_head.reg_convs.2.gn.bias': 'localization_conv.5.bias',
+        'bbox_head.reppoints_cls_conv.weight': 'classification_deform_conv.weight',
+        'bbox_head.reppoints_cls_out.weight': 'classification_conv_out.weight',
+        'bbox_head.reppoints_cls_out.bias': 'classification_conv_out.bias',
+        'bbox_head.reppoints_pts_init_conv.weight': 'points_init_conv.weight',
+        'bbox_head.reppoints_pts_init_conv.bias': 'points_init_conv.bias',
+        'bbox_head.reppoints_pts_init_out.weight': 'points_init_offset_conv.weight',
+        'bbox_head.reppoints_pts_init_out.bias': 'points_init_offset_conv.bias',
+        'bbox_head.reppoints_pts_refine_conv.weight': 'points_refine_deform_conv.weight',
+        'bbox_head.reppoints_pts_refine_out.weight': 'points_refine_offset_conv.weight',
+        'bbox_head.reppoints_pts_refine_out.bias': 'points_refine_offset_conv.bias',
+    }
+
+    pretrained_weights = torch.load(path, map_location=device)['state_dict']
+
+    rep_points_head = OrientedRepPointsHead()
+
+    sd = rep_points_head.state_dict()
+    for pretrained_key, model_key in state_dict_mapper.items():
+        sd[model_key] = pretrained_weights[pretrained_key]
+
+    return sd
+
+
 class DetectionModel(nn.Module):
-    def __init__(self, train_backbone: bool = False):
+    def __init__(self, train_backbone: bool = False, state_dict_path: Optional[str] = None):
         super().__init__()
         self.feature_map = YOLOv5Features(requires_grad=train_backbone).to(device)
         self.feature_map_strides = {'P3': 8, 'P4': 16, 'P5': 32}
@@ -21,6 +65,10 @@ class DetectionModel(nn.Module):
         self.P5_resample = nn.Conv2d(in_channels=768, out_channels=256, **conv_kwargs)
 
         self.oriented_rep_points_head = OrientedRepPointsHead(num_offsets=9, num_classes=15)
+
+        if state_dict_path:
+            pretrained_state_dict = get_pretrained_state_dict(state_dict_path)
+            self.oriented_rep_points_head.load_state_dict(pretrained_state_dict)
 
     def forward(self, x):
         # get feature maps from backbone + neck
@@ -78,7 +126,7 @@ class DetectionModelFeatures(nn.Module):
 
 
 if __name__ == '__main__':
-    model = DetectionModel().to(device)
+    model = DetectionModel(state_dict_path='weights/epoch_40.pth').to(device)
     img_in = torch.rand(1, 3, 512, 512).to(device)
     rep_points_init, rep_points_refine, classifications = model(img_in)
 

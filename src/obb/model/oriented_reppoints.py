@@ -55,14 +55,14 @@ class OrientedRepPointsHead(nn.Module):
         # classification subnet
         self.classification_conv = self._get_features_subnet()
         self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
-        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes + 1, **self.conv_params)
+        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes, kernel_size=1)
 
         # localization subnet
         self.localization_conv = self._get_features_subnet()
-        self.points_init_conv = nn.Conv2d(in_channels=256, out_channels=256, **self.conv_params)
-        self.points_init_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, **self.conv_params)
+        self.points_init_conv = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1)
+        self.points_init_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, kernel_size=1)
         self.points_refine_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
-        self.points_refine_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, **self.conv_params)
+        self.points_refine_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, kernel_size=1)
 
     def _get_features_subnet(self):
         return nn.Sequential(
@@ -99,7 +99,7 @@ class OrientedRepPointsHead(nn.Module):
 
 if __name__ == "__main__":
     img_h, img_w = (512, 512)
-    batch_size = 2
+    batch_size = 1
     features_per_map = 256
     strides = {'P3': 8, 'P4': 16, 'P5': 32}
     feature_maps = {name: torch.rand(batch_size, features_per_map, img_h // stride, img_w // stride).to(device)
