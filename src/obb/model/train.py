@@ -20,7 +20,7 @@ def elapsed_time(start_time):
 
 
 if __name__ == '__main__':
-    train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
+    train_dataset = Dataset(path='../../../assets/DOTA/train_split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
 
     model = DetectionModel().to(device)
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     # )
 
     optimizer = torch.optim.SGD(params=model.parameters(),
-                                lr=8e-3,
+                                lr=2e-3,
                                 momentum=0.9,
                                 weight_decay=1e-4)
 
@@ -48,16 +48,26 @@ if __name__ == '__main__':
 
     start_time = time.time()
 
-    for epoch in range(1, epochs + 1):
+    # Load previous state
+    last_epoch = 1
+    checkpoint = torch.load(f'./checkpoints/epoch_{last_epoch}.pt')
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+
+    for epoch in range(last_epoch + 1, epochs + 1):
         model.train()
 
         running_loss = 0.0
-        running_classification_loss = 0.0
-        running_regression_init_loss = 0.0
-        running_regression_refine_loss = 0.0
+        running_cls_loss = 0.0
+        running_obj_loss = 0.0
+        running_reg_loss_init = 0.0
+        running_reg_loss_refine = 0.0
 
         cnt = 0
-        log_step = 1
+        cnt_pos = 0
+        log_step = 100
         epoch_time = time.time()
         for img, obb, object_class in tqdm(train_data_loader):
 
@@ -68,22 +78,42 @@ if __name__ == '__main__':
             rep_points_init, rep_points_refine, classification = model(img)  # forward pass
 
             loss, loss_dict = rep_points_loss.get_loss(rep_points_init, rep_points_refine, classification, obb, object_class)  # calculate loss
+                
             optimizer.zero_grad()  # zero the parameter gradients
             loss.backward()  # backpropagation
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=35, norm_type=2)  # clip gradient
             optimizer.step()  # update parameters
 
             running_loss = (cnt * running_loss + loss.data.item()) / (cnt + 1)
+            running_obj_loss = (cnt * running_obj_loss + loss_dict['objectness'].data.item()) / (cnt + 1)
+            if len(object_class) > 0:
+                running_cls_loss = (cnt_pos * running_cls_loss + loss_dict['classification'].data.item()) / (cnt_pos + 1)
+                running_reg_loss_init = (cnt_pos * running_reg_loss_init + loss_dict['regression_init'].data.item()) / (cnt_pos + 1)
+                running_reg_loss_refine = (cnt_pos * running_reg_loss_refine + loss_dict['regression_refine'].data.item()) / (cnt_pos + 1)
+                cnt_pos += 1
 
             cnt += 1
             if cnt % log_step == 0:
                 print()
-                print(float(loss_dict['classification']))
-                print(float(loss_dict['regression_init']))
-                print(float(loss_dict['regression_refine']))
-                print([f'{prc_cls:.4f}' for prc_cls in loss_dict['precision']])
-                print([f'{rcl_cls:.4f}' for rcl_cls in loss_dict['recall']])
+                print(f"Classification: Running {running_cls_loss:.4f}  |  Current {float(loss_dict['classification']):.4f}")
+                print(f"Objectness: Running {running_obj_loss:.4f}  |  Current {float(loss_dict['objectness']):.4f}")
+                print(f"Regression init: Running {running_reg_loss_init:.4f}  |  Current {float(loss_dict['regression_init']):.4f}")
+                print(f"Regression refine: Running {running_reg_loss_refine:.4f}  |  Current {float(loss_dict['regression_refine']):.4f}")
+                print(f'Number of objects: {len(object_class)}')
+                print('Class precisions:')
+                print([f'{float(prc):.4f}' for prc in loss_dict['precision']])
+                print('Class recalls:')
+                print([f'{float(rcl):.4f}' for rcl in loss_dict['recall']])
 
         # calculate loss
         train_loss_dict[epoch] = running_loss
         print(f'{elapsed_time(start_time)}  |  Epoch {str(epoch).ljust(2)}/{epochs}  |  Loss: {running_loss:.02f}')
+
+        # save state
+        state = {
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'loss': running_loss
+        }
+        torch.save(state, f'./checkpoints/epoch_{epoch}.pt')
