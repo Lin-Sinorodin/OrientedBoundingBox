@@ -55,7 +55,7 @@ class OrientedRepPointsHead(nn.Module):
         # classification subnet
         self.classification_conv = self._get_features_subnet()
         self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
-        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes, kernel_size=1)
+        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes + 1, kernel_size=1)
 
         # localization subnet
         self.localization_conv = self._get_features_subnet()
