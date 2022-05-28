@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from typing import Dict
 from einops import rearrange
-from kornia.losses import focal_loss
-from sklearn.metrics import confusion_matrix, precision_score, recall_score
+from kornia.losses import focal_loss, binary_focal_loss_with_logits
+from sklearn.metrics import precision_score, recall_score
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
@@ -12,7 +12,7 @@ from obb.utils.box_ops import out_of_box_distance
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 NUM_CLASSES = 15
-
+NUM_REP_POINTS = 9
 
 class OBBPointAssigner:
     """
@@ -324,7 +324,7 @@ class OrientedRepPointsLoss(nn.Module):
 
             h, w = raw_rep_points_init[feature_map].shape[2:]
             stride = 2 ** int(feature_map[1])
-            grid_x, grid_y = torch.meshgrid(torch.arange(0., w * stride, stride), torch.arange(0., h * stride, stride))
+            grid_x, grid_y = torch.meshgrid(torch.arange(0., w * stride, stride).to(device), torch.arange(0., h * stride, stride).to(device))
             centers1 = rearrange(torch.stack([grid_x, grid_y], dim=-1), 'h w xy -> 1 xy h w')
             centers2 = centers1.clone()
 
@@ -406,8 +406,35 @@ class OrientedRepPointsLoss(nn.Module):
 
         # initialization step
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
-        classification_loss = focal_loss(classification, assigned_labels_init, alpha=0.25, gamma=2, reduction='mean')
+
+        pos_idx = torch.where(assigned_labels_init > 0)
+        neg_idx = torch.where(assigned_labels_init == 0)
+        assigned_labels_pos_init = assigned_labels_init[pos_idx]
+        classification_pos = classification[pos_idx]
+        classification_neg = classification[neg_idx]
+        obj_pos = classification_pos[:, 0]
+        cls_pos = classification_pos[:, 1:]
+        obj_neg = classification_neg[:, 0]
+        num_pos = len(obj_pos)
+        num_neg = len(obj_neg)
+
+        classification_loss = focal_loss(cls_pos, assigned_labels_pos_init - 1, alpha=0.25, gamma=2, reduction='mean')
         classification_loss *= self.classification_weight
+
+        if num_pos > 0:
+            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos.reshape(1, -1), torch.ones(1, num_pos).to(device),
+                                                                alpha=0.25, gamma=2, reduction='mean')
+        else:
+            objectness_pos_loss = torch.Tensor([0.]).to(device)
+
+        if num_neg > 0:
+            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg.reshape(1, -1), torch.zeros(1, num_neg).to(device),
+                                                                alpha=0.25, gamma=2, reduction='mean')
+        else:
+            objectness_neg_loss = torch.Tensor([0.]).to(device)
+
+        objectness_loss = objectness_pos_loss + objectness_neg_loss
+
         localization_init_loss, spatial_constraint_init_loss = self._box_regression_loss(
             rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
         )
@@ -436,22 +463,23 @@ class OrientedRepPointsLoss(nn.Module):
             if torch.isnan(box_regression_refine_loss):
                 box_regression_refine_loss = torch.zeros(1).to(device)
 
-        # confusion matrix precision/recall metrics for every class
-        classification_hard = torch.argmax(classification, dim=1)
-        confusion_mat = confusion_matrix(assigned_labels_init, classification_hard, labels=range(NUM_CLASSES + 1))
-        precision = precision_score(assigned_labels_init, classification_hard, average=None, zero_division=0, labels=range(NUM_CLASSES + 1))
-        recall = recall_score(assigned_labels_init, classification_hard, average=None, zero_division=0, labels=range(NUM_CLASSES + 1))
+        # precision/recall metrics for every class
+        classification_hard = torch.argmax(cls_pos, dim=1) + 1
+        precision = precision_score(assigned_labels_pos_init.to("cpu"), classification_hard.to("cpu"),
+                                    average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
+        recall = recall_score(assigned_labels_pos_init.to("cpu"), classification_hard.to("cpu"),
+                              average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
 
         loss_dict = {
             'classification': classification_loss,
+            'objectness': objectness_loss,
             'regression_init': box_regression_init_loss,
             'regression_refine': box_regression_refine_loss,
-            'confusion_matrix': confusion_mat,
-            'precision': precision,
-            'recall': recall
+            'precision': torch.Tensor(precision).to(device),
+            'recall': torch.Tensor(recall).to(device)
         }
 
-        return classification_loss + box_regression_init_loss + box_regression_refine_loss, loss_dict
+        return classification_loss + objectness_loss + box_regression_init_loss + box_regression_refine_loss, loss_dict
 
 
 if __name__ == '__main__':
@@ -470,12 +498,10 @@ if __name__ == '__main__':
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
-    loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg = rep_points_loss.get_loss(
-        rep_points_init_, rep_points_refine_,
-        classification_, gt_obboxes_, gt_labels_)
+    loss, loss_dict = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
 
     # print(torch.max(classification_['P5'], dim=1))
-    print(loss, cls_loss, reg_init_loss, reg_refine_loss, precision_pos, precision_neg, sep='\n')
+    print(loss, loss_dict)
 
     torch.autograd.set_detect_anomaly(True)
 
