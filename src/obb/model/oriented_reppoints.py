@@ -49,19 +49,27 @@ def rep_point_to_img_space(feature_space_tensor: torch.tensor, stride: int) -> t
 class OrientedRepPointsHead(nn.Module):
     def __init__(self, num_offsets: int = 9, num_classes: int = 15):
         super().__init__()
-        self.conv_params = {'kernel_size': (3, 3), 'stride': (1, 1), 'padding': 1, 'bias': False}
+        self.conv_params = {
+            'kernel_size': (3, 3),
+            'stride': (1, 1),
+            'padding': 1,
+            'padding_mode': 'replicate',
+            'bias': False
+        }
+        self.conv_params_without_padding_mode = dict(self.conv_params)
+        self.conv_params_without_padding_mode.pop('padding_mode')
         self.relu = nn.ReLU(inplace=True)
 
         # classification subnet
         self.classification_conv = self._get_features_subnet()
-        self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
+        self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params_without_padding_mode)
         self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes + 1, kernel_size=1)
 
         # localization subnet
         self.localization_conv = self._get_features_subnet()
         self.points_init_conv = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1)
         self.points_init_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, kernel_size=1)
-        self.points_refine_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params)
+        self.points_refine_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params_without_padding_mode)
         self.points_refine_offset_conv = nn.Conv2d(in_channels=256, out_channels=num_offsets * 2, kernel_size=1)
 
     def _get_features_subnet(self):

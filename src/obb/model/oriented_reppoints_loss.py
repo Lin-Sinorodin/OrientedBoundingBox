@@ -9,6 +9,7 @@ from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
 from obb.utils.box_ops import out_of_box_distance
 
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 NUM_CLASSES = 15
