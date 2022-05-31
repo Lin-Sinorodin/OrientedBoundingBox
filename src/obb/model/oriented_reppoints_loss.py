@@ -7,13 +7,13 @@ from sklearn.metrics import precision_score, recall_score
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
-from obb.utils.box_ops import *
-
+from obb.utils.box_ops import is_inside_box, out_of_box_distance
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 NUM_CLASSES = 15
 NUM_REP_POINTS = 9
+
 
 class SimpleAssigner:
     """
@@ -351,7 +351,8 @@ class OrientedRepPointsLoss(nn.Module):
         self.init_spatial_constraint_weight = 0.05
         self.refine_spatial_constraint_weight = 0.1
 
-        self.init_assigner = OBBPointAssigner()
+        # self.init_assigner = OBBPointAssigner()
+        self.init_assigner = SimpleAssigner()
         # TODO switch to OBBMaxIoUAssigner ASAP
         self.refine_assigner = OBBPointAssigner()
 
@@ -412,7 +413,8 @@ class OrientedRepPointsLoss(nn.Module):
 
             h, w = raw_rep_points_init[feature_map].shape[2:]
             stride = 2 ** int(feature_map[1])
-            grid_x, grid_y = torch.meshgrid(torch.arange(0., w * stride, stride).to(device), torch.arange(0., h * stride, stride).to(device))
+            grid_x, grid_y = torch.meshgrid(torch.arange(0., w * stride, stride).to(device),
+                                            torch.arange(0., h * stride, stride).to(device))
             centers1 = rearrange(torch.stack([grid_x, grid_y], dim=-1), 'h w xy -> 1 xy h w')
             centers2 = centers1.clone()
 
@@ -431,37 +433,44 @@ class OrientedRepPointsLoss(nn.Module):
 
         return centers_init, centers_refine
 
-    def _box_regression_loss(self, rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init):
-        if gt_obb.ndim == 1:
-            return torch.Tensor([0., 0.])
-
+    def _box_regression_loss(self, rep_points, gt_obb, assigned_gt_idxs, assigned_labels, ext_giou_loss_mask=None):
         # initialization stage assigner
-        positive_samples_idx_init = torch.where(assigned_labels_init > 0)
-        positive_assigned_gt_idxs_init = assigned_gt_idxs_init[positive_samples_idx_init]
-        positive_rep_points_init = rep_points_init[positive_samples_idx_init]
+        positive_samples_idx = torch.where(assigned_labels > 0)
+        positive_assigned_gt_idxs = assigned_gt_idxs[positive_samples_idx]
+        positive_rep_points = rep_points[positive_samples_idx]
+        if ext_giou_loss_mask is not None:
+            positive_assigned_gt_idxs = positive_assigned_gt_idxs[ext_giou_loss_mask]
+            positive_rep_points = positive_rep_points[ext_giou_loss_mask]
+
+        giou_loss_mask = torch.zeros(positive_rep_points.shape[0], dtype=torch.bool, device=device)
+
+        if gt_obb.ndim == 1:
+            return torch.Tensor([0.]), torch.Tensor([0.]), giou_loss_mask
 
         # initialize losses with 0
         localization_loss = torch.zeros(1, dtype=torch.float, device=device)
         spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)
 
         # iterate over positive samples and add its loss to the total loss
-        for i, pred_points in enumerate(positive_rep_points_init):
+        for i, pred_points in enumerate(positive_rep_points):
             pred_points = pred_points.reshape(-1, 2)
 
             # ground truth obb for the current rep points
-            gt_box_idx = int(positive_assigned_gt_idxs_init[i]) - 1
+            gt_box_idx = int(positive_assigned_gt_idxs[i]) - 1
             gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float().to(device)
             gt_points.requires_grad = False
             pred_points_convex_hull = convex_hull(pred_points)
-            localization_loss += giou_loss(gt_points, pred_points_convex_hull)
+            curr_giou_loss = giou_loss(gt_points, pred_points_convex_hull)
+            localization_loss += curr_giou_loss
+            giou_loss_mask[i] = (curr_giou_loss < 0.5)
             spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)
 
         # divide by number of positive samples
-        if len(positive_rep_points_init) > 0:
-            localization_loss /= len(positive_rep_points_init)
-            spatial_constraint_loss /= len(positive_rep_points_init)
+        if len(positive_rep_points) > 0:
+            localization_loss /= len(positive_rep_points)
+            spatial_constraint_loss /= len(positive_rep_points)
 
-        return localization_loss, spatial_constraint_loss
+        return localization_loss, spatial_constraint_loss, giou_loss_mask
 
     def get_loss(
             self,
@@ -492,7 +501,7 @@ class OrientedRepPointsLoss(nn.Module):
         )
         centers_init, centers_refine = self._get_centers(raw_rep_points_init, raw_rep_points_refine)
 
-        # initialization step
+        # assign gt to every positive prediction
         assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
 
         pos_idx = torch.where(assigned_labels_init > 0)
@@ -506,33 +515,43 @@ class OrientedRepPointsLoss(nn.Module):
         num_pos = len(obj_pos)
         num_neg = len(obj_neg)
 
-        classification_loss = focal_loss(cls_pos, assigned_labels_pos_init - 1, alpha=0.25, gamma=2, reduction='mean')
-        classification_loss *= self.classification_weight
-
+        # objectness loss
         if num_pos > 0:
-            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos.reshape(1, -1), torch.ones(1, num_pos).to(device),
+            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos.reshape(1, -1),
+                                                                torch.ones(1, num_pos).to(device),
                                                                 alpha=0.25, gamma=2, reduction='mean')
         else:
             objectness_pos_loss = torch.Tensor([0.]).to(device)
 
         if num_neg > 0:
-            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg.reshape(1, -1), torch.zeros(1, num_neg).to(device),
+            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg.reshape(1, -1),
+                                                                torch.zeros(1, num_neg).to(device),
                                                                 alpha=0.25, gamma=2, reduction='mean')
         else:
             objectness_neg_loss = torch.Tensor([0.]).to(device)
 
         objectness_loss = objectness_pos_loss + objectness_neg_loss
 
-        localization_init_loss, spatial_constraint_init_loss = self._box_regression_loss(
-            rep_points_init, gt_obb, assigned_gt_idxs_init, assigned_labels_init
+        # box regression loss (initialization step)
+        localization_init_loss, spatial_constraint_init_loss, giou_loss_mask = self._box_regression_loss(
+            rep_points_init,
+            gt_obb,
+            assigned_gt_idxs_init,
+            assigned_labels_init
         )
         box_regression_init_loss = (self.init_localization_weight * localization_init_loss +
                                     self.init_spatial_constraint_weight * spatial_constraint_init_loss)
 
-        # refinement step
-        assigned_gt_idxs_refine, assigned_labels_refine = self.refine_assigner.assign(centers_refine, gt_obb, gt_labels)
-        localization_refine_loss, spatial_constraint_refine_loss = self._box_regression_loss(
-            rep_points_refine, gt_obb, assigned_gt_idxs_refine, assigned_labels_refine
+        # classification loss
+        classification_loss = focal_loss(cls_pos[giou_loss_mask], assigned_labels_pos_init[giou_loss_mask] - 1, alpha=0.25, gamma=2, reduction='mean')
+
+        # box regression loss (refinement step)
+        localization_refine_loss, spatial_constraint_refine_loss, _ = self._box_regression_loss(
+            rep_points_refine,
+            gt_obb,
+            assigned_gt_idxs_init,
+            assigned_labels_init,
+            giou_loss_mask
         )
         box_regression_refine_loss = (self.refine_localization_weight * localization_refine_loss +
                                       self.refine_spatial_constraint_weight * spatial_constraint_refine_loss)
@@ -552,10 +571,10 @@ class OrientedRepPointsLoss(nn.Module):
                 box_regression_refine_loss = torch.zeros(1).to(device)
 
         # precision/recall metrics for every class
-        classification_hard = torch.argmax(cls_pos, dim=1) + 1
-        precision = precision_score(assigned_labels_pos_init.to("cpu"), classification_hard.to("cpu"),
+        classification_hard = torch.argmax(cls_pos[giou_loss_mask], dim=1) + 1
+        precision = precision_score(assigned_labels_pos_init[giou_loss_mask].to("cpu"), classification_hard.to("cpu"),
                                     average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
-        recall = recall_score(assigned_labels_pos_init.to("cpu"), classification_hard.to("cpu"),
+        recall = recall_score(assigned_labels_pos_init[giou_loss_mask].to("cpu"), classification_hard.to("cpu"),
                               average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
 
         loss_dict = {
@@ -586,7 +605,8 @@ if __name__ == '__main__':
     rep_points_init_, rep_points_refine_, classification_ = model(img_in)
 
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
-    loss, loss_dict = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_)
+    loss, loss_dict = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_,
+                                               gt_labels_)
 
     # print(torch.max(classification_['P5'], dim=1))
     print(loss, loss_dict)
