@@ -7,13 +7,100 @@ from sklearn.metrics import precision_score, recall_score
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
-from obb.utils.box_ops import out_of_box_distance
+from obb.utils.box_ops import *
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 NUM_CLASSES = 15
 NUM_REP_POINTS = 9
+
+class SimpleAssigner:
+    """
+    Assign a corresponding oriented gt box or background to each point.
+    """
+
+    def __init__(self, scale=4):
+        self.scale = scale
+
+    @staticmethod
+    def _obb_to_ob(obb_xs, obb_ys):
+        gt_xmin, _ = obb_xs.min(1)
+        gt_ymin, _ = obb_ys.min(1)
+        gt_xmax, _ = obb_xs.max(1)
+        gt_ymax, _ = obb_ys.max(1)
+        return torch.cat([gt_xmin[:, None], gt_ymin[:, None], gt_xmax[:, None], gt_ymax[:, None]], dim=1)
+
+    def assign(self, points, gt_obboxes, gt_labels=None):
+        """
+        Assign oriented gt boxes to points.
+
+        This method assign a gt bbox to a point of it lies inside the bbox.
+
+        Args:
+            points (Tensor): points to be assigned, shape(n, 3) while last dimension stands for (x, y, stride).
+            gt_obboxes (Tensor): groundtruth oriented boxes, shape (k, 8).
+            gt_labels (Tensor, optional): Label of gt_bboxes, shape (k, ).
+        Returns:
+            :obj:`AssignResult`: The assign results.
+        """
+
+        scale = self.scale
+        num_points = points.shape[0]
+
+        if gt_obboxes.ndim == 1:
+            # If no truth assign everything to the background
+            assigned_gt_inds = points.new_full((num_points,), 0, dtype=torch.long)
+            if gt_labels is None:
+                assigned_labels = None
+            else:
+                assigned_labels = points.new_zeros((num_points,), dtype=torch.long)
+            return assigned_gt_inds, assigned_labels
+
+        points_xy = points[:, :2]
+        points_stride = points[:, 2]
+        points_lvl = torch.log2(points_stride).int()  # [3...,4...,5...,6...,7...]
+        lvl_min, lvl_max = points_lvl.min(), points_lvl.max()
+
+        # assign gt rbox
+        gt_bboxes = self._obb_to_ob(obb_xs=gt_obboxes[:, 0::2], obb_ys=gt_obboxes[:, 1::2])
+        gt_bboxes_xy = (gt_bboxes[:, :2] + gt_bboxes[:, 2:]) / 2
+        gt_bboxes_wh = (gt_bboxes[:, 2:] - gt_bboxes[:, :2]).clamp(min=1e-6)
+        gt_bboxes_lvl = ((torch.log2(gt_bboxes_wh[:, 0] / scale) + torch.log2(gt_bboxes_wh[:, 1] / scale)) / 2).int()
+        gt_bboxes_lvl = torch.clamp(gt_bboxes_lvl, min=lvl_min, max=lvl_max)
+
+        # stores the assigned gt index of each point
+        assigned_gt_inds = points.new_zeros((num_points,), dtype=torch.long).to(device)
+
+        points_range = torch.arange(points.shape[0])
+
+        for idx in range(gt_obboxes.shape[0]):
+            gt_lvl = gt_bboxes_lvl[idx]
+            gt_bbox = gt_obboxes[idx].reshape(-1, 2)
+
+            # get the index of points in this level
+            lvl_idx = gt_lvl == points_lvl
+            points_index = points_range[lvl_idx]
+
+            lvl_points = points_xy[lvl_idx, :]
+
+            # check if points are inside the gt bbox
+            points_inside_gt_idx = is_inside_box(lvl_points, gt_bbox)
+
+            # assign the result
+            assigned_gt_inds[points_index[points_inside_gt_idx]] = idx + 1
+
+        if gt_labels is not None:
+            gt_labels = gt_labels.to(device)
+            assigned_labels = assigned_gt_inds.new_zeros((num_points,)).to(device)
+            pos_inds = torch.nonzero(assigned_gt_inds > 0).squeeze().to(device)
+            if pos_inds.numel() > 0:
+                assigned_labels[pos_inds] = gt_labels[assigned_gt_inds[pos_inds] - 1]
+        else:
+            assigned_labels = None
+
+        return assigned_gt_inds, assigned_labels
+
 
 class OBBPointAssigner:
     """
