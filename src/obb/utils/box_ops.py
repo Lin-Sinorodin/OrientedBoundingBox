@@ -307,6 +307,31 @@ def xyxy_to_xywha(points: torch.Tensor, explicit_angle=False):
         return x, y, w, h, c, s
 
 
+def is_inside_box(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
+    """
+    Determines for each point whether it lies inside the bbox.
+
+    :param points: (Tensor[N, 2]) Tensor of N Points.
+    :param box_points: (Tensor[D, 2]) Tensor of bbox with D vertices (D=4 for a rectangular bbox) in counterclockwise order.
+    :return: (Tensor[N]) Tensor containing 1's for all points inside the bbox and 0's otherwise/
+    """
+    device = points.device
+
+    if box_points.shape[0] != 4:
+        raise NotImplementedError
+
+    # Convert bbox from ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) to (x, y, w, h, angle)
+    x, y, w, h, c, s = xyxy_to_xywha(box_points)
+
+    # Move into the bbox coordinates
+    points_centered = points.clone().to(device)
+    points_centered[:, 0] -= x
+    points_centered[:, 1] -= y
+    points_trans = points_centered @ torch.tensor([[c, -s], [s, c]]).to(device)
+
+    return (torch.abs(points_trans[:, 0]) < 0.5 * w) * (torch.abs(points_trans[:, 1]) < 0.5 * h)
+
+
 def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
     """
     Computes distance of each point which lies outside bbox from the nearest side of the bbox.
