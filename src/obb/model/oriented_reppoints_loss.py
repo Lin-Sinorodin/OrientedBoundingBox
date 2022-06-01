@@ -76,7 +76,9 @@ class SimpleAssigner:
 
         for idx in range(gt_obboxes.shape[0]):
             gt_lvl = gt_bboxes_lvl[idx]
+            gt_stride = 2 ** gt_lvl
             gt_bbox = gt_obboxes[idx].reshape(-1, 2)
+            gt_bbox_xy = gt_bboxes_xy[idx]
 
             # get the index of points in this level
             lvl_idx = gt_lvl == points_lvl
@@ -352,9 +354,8 @@ class OrientedRepPointsLoss(nn.Module):
         self.refine_spatial_constraint_weight = 0.1
 
         # self.init_assigner = OBBPointAssigner()
-        self.init_assigner = SimpleAssigner()
-        # TODO switch to OBBMaxIoUAssigner ASAP
-        self.refine_assigner = OBBPointAssigner()
+        self.fine_assigner = SimpleAssigner()
+        self.coarse_assigner = OBBPointAssigner()
 
     def _flatten_head_output(self, raw_rep_points_init, raw_rep_points_refine, raw_classification):
         """
@@ -502,30 +503,33 @@ class OrientedRepPointsLoss(nn.Module):
         centers_init, centers_refine = self._get_centers(raw_rep_points_init, raw_rep_points_refine)
 
         # assign gt to every positive prediction
-        assigned_gt_idxs_init, assigned_labels_init = self.init_assigner.assign(centers_init, gt_obb, gt_labels)
+        assigned_gt_idxs_fine, assigned_labels_fine = self.fine_assigner.assign(centers_init, gt_obb, gt_labels)
 
-        pos_idx = torch.where(assigned_labels_init > 0)
-        neg_idx = torch.where(assigned_labels_init == 0)
-        assigned_labels_pos_init = assigned_labels_init[pos_idx]
-        classification_pos = classification[pos_idx]
-        classification_neg = classification[neg_idx]
-        obj_pos = classification_pos[:, 0]
-        cls_pos = classification_pos[:, 1:]
-        obj_neg = classification_neg[:, 0]
-        num_pos = len(obj_pos)
-        num_neg = len(obj_neg)
+        assigned_gt_idxs_coarse, assigned_labels_coarse = self.coarse_assigner.assign(centers_init, gt_obb, gt_labels)
+
+        pos_fine_idx = torch.where(assigned_labels_fine > 0)
+        neg_fine_idx = torch.where(assigned_labels_fine == 0)
+        assigned_labels_pos_fine = assigned_labels_fine[pos_fine_idx]
+        assigned_gt_idxs_pos_fine = assigned_gt_idxs_fine[pos_fine_idx]
+        classification_pos_fine = classification[pos_fine_idx]
+        classification_neg_fine = classification[neg_fine_idx]
+        obj_pos_fine = classification_pos_fine[:, 0]
+        cls_pos_fine = classification_pos_fine[:, 1:]
+        obj_neg_fine = classification_neg_fine[:, 0]
+        num_pos_fine = len(obj_pos_fine)
+        num_neg_fine = len(obj_neg_fine)
 
         # objectness loss
-        if num_pos > 0:
-            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos.reshape(1, -1),
-                                                                torch.ones(1, num_pos).to(device),
+        if num_pos_fine > 0:
+            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos_fine.reshape(1, -1),
+                                                                torch.ones(1, num_pos_fine).to(device),
                                                                 alpha=0.25, gamma=2, reduction='mean')
         else:
             objectness_pos_loss = torch.Tensor([0.]).to(device)
 
-        if num_neg > 0:
-            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg.reshape(1, -1),
-                                                                torch.zeros(1, num_neg).to(device),
+        if num_neg_fine > 0:
+            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg_fine.reshape(1, -1),
+                                                                torch.zeros(1, num_neg_fine).to(device),
                                                                 alpha=0.25, gamma=2, reduction='mean')
         else:
             objectness_neg_loss = torch.Tensor([0.]).to(device)
@@ -536,21 +540,29 @@ class OrientedRepPointsLoss(nn.Module):
         localization_init_loss, spatial_constraint_init_loss, giou_loss_mask = self._box_regression_loss(
             rep_points_init,
             gt_obb,
-            assigned_gt_idxs_init,
-            assigned_labels_init
+            assigned_gt_idxs_coarse,
+            assigned_labels_coarse
         )
         box_regression_init_loss = (self.init_localization_weight * localization_init_loss +
                                     self.init_spatial_constraint_weight * spatial_constraint_init_loss)
 
+        giou_loss_mask_idx = torch.zeros(cls_pos_fine.shape[0], dtype=torch.bool, device=device)
+        for i in range(len(gt_obb)):
+            if i in assigned_gt_idxs_coarse[assigned_gt_idxs_coarse > 0][giou_loss_mask]:
+                giou_loss_mask_idx[i] = True
+        cls_pos_coarse = cls_pos_fine[giou_loss_mask_idx]
+        assigned_labels_pos_coarse = assigned_labels_pos_fine[giou_loss_mask_idx]
+
         # classification loss
-        classification_loss = focal_loss(cls_pos[giou_loss_mask], assigned_labels_pos_init[giou_loss_mask] - 1, alpha=0.25, gamma=2, reduction='mean')
+        classification_loss = focal_loss(cls_pos_coarse, assigned_labels_pos_coarse - 1,
+                                         alpha=0.25, gamma=2, reduction='mean')
 
         # box regression loss (refinement step)
         localization_refine_loss, spatial_constraint_refine_loss, _ = self._box_regression_loss(
             rep_points_refine,
             gt_obb,
-            assigned_gt_idxs_init,
-            assigned_labels_init,
+            assigned_gt_idxs_coarse,
+            assigned_labels_coarse,
             giou_loss_mask
         )
         box_regression_refine_loss = (self.refine_localization_weight * localization_refine_loss +
@@ -571,10 +583,10 @@ class OrientedRepPointsLoss(nn.Module):
                 box_regression_refine_loss = torch.zeros(1).to(device)
 
         # precision/recall metrics for every class
-        classification_hard = torch.argmax(cls_pos[giou_loss_mask], dim=1) + 1
-        precision = precision_score(assigned_labels_pos_init[giou_loss_mask].to("cpu"), classification_hard.to("cpu"),
+        classification_hard = torch.argmax(cls_pos_coarse, dim=1) + 1
+        precision = precision_score(assigned_labels_pos_coarse.to("cpu"), classification_hard.to("cpu"),
                                     average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
-        recall = recall_score(assigned_labels_pos_init[giou_loss_mask].to("cpu"), classification_hard.to("cpu"),
+        recall = recall_score(assigned_labels_pos_coarse.to("cpu"), classification_hard.to("cpu"),
                               average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
 
         loss_dict = {
