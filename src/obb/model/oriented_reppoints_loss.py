@@ -9,6 +9,7 @@ from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
 from obb.utils.box_ops import is_inside_box, out_of_box_distance
 
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 NUM_CLASSES = 15
@@ -331,7 +332,8 @@ def giou_loss(gt_points, pred_points):
     all_points = torch.cat([gt_points, pred_points])
     all_points_area = polygon_area(convex_hull(all_points))
     giou = iou - (all_points_area - union_area) / (all_points_area + 1e-16)
-    return 1 - giou
+    # return 1 - giou
+    return -2 * torch.log((1 + giou) / 2)
 
 
 def out_of_box_loss(gt_points, pred_points):
@@ -546,15 +548,15 @@ class OrientedRepPointsLoss(nn.Module):
         box_regression_init_loss = (self.init_localization_weight * localization_init_loss +
                                     self.init_spatial_constraint_weight * spatial_constraint_init_loss)
 
-        giou_loss_mask_idx = torch.zeros(cls_pos_fine.shape[0], dtype=torch.bool, device=device)
-        for i in range(len(gt_obb)):
-            if i in assigned_gt_idxs_coarse[assigned_gt_idxs_coarse > 0][giou_loss_mask]:
-                giou_loss_mask_idx[i] = True
-        cls_pos_coarse = cls_pos_fine[giou_loss_mask_idx]
-        assigned_labels_pos_coarse = assigned_labels_pos_fine[giou_loss_mask_idx]
+        # giou_loss_mask_idx = torch.zeros(cls_pos_fine.shape[0], dtype=torch.bool, device=device)
+        # for i in range(len(gt_obb)):
+        #     if i + 1 in assigned_gt_idxs_coarse[assigned_gt_idxs_coarse > 0][giou_loss_mask]:
+        #         giou_loss_mask_idx[assigned_gt_idxs_pos_fine == i + 1] = True
+        # cls_pos_coarse = cls_pos_fine[giou_loss_mask_idx]
+        # assigned_labels_pos_coarse = assigned_labels_pos_fine[giou_loss_mask_idx]
 
         # classification loss
-        classification_loss = focal_loss(cls_pos_coarse, assigned_labels_pos_coarse - 1,
+        classification_loss = focal_loss(cls_pos_fine, assigned_labels_pos_fine - 1,
                                          alpha=0.25, gamma=2, reduction='mean')
 
         # box regression loss (refinement step)
@@ -563,7 +565,7 @@ class OrientedRepPointsLoss(nn.Module):
             gt_obb,
             assigned_gt_idxs_coarse,
             assigned_labels_coarse,
-            giou_loss_mask
+            # giou_loss_mask
         )
         box_regression_refine_loss = (self.refine_localization_weight * localization_refine_loss +
                                       self.refine_spatial_constraint_weight * spatial_constraint_refine_loss)
@@ -583,10 +585,10 @@ class OrientedRepPointsLoss(nn.Module):
                 box_regression_refine_loss = torch.zeros(1).to(device)
 
         # precision/recall metrics for every class
-        classification_hard = torch.argmax(cls_pos_coarse, dim=1) + 1
-        precision = precision_score(assigned_labels_pos_coarse.to("cpu"), classification_hard.to("cpu"),
+        classification_hard = torch.argmax(cls_pos_fine, dim=1) + 1
+        precision = precision_score(assigned_labels_pos_fine.to("cpu"), classification_hard.to("cpu"),
                                     average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
-        recall = recall_score(assigned_labels_pos_coarse.to("cpu"), classification_hard.to("cpu"),
+        recall = recall_score(assigned_labels_pos_fine.to("cpu"), classification_hard.to("cpu"),
                               average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
 
         loss_dict = {
