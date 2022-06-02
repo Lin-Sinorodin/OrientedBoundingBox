@@ -341,6 +341,7 @@ def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch
     :param box_points: (Tensor[D, 2]) Tensor of bbox with D vertices (D=4 for a rectangular bbox) in counterclockwise order.
     :return: (Tensor[N]) The distance of each point from the nearest side of the bbox.
     """
+
     device = points.device
 
     if box_points.shape[0] != 4:
@@ -360,3 +361,62 @@ def out_of_box_distance(points: torch.Tensor, box_points: torch.Tensor) -> torch
     eps = 1e-16
     return torch.hypot(torch.maximum(torch.abs(points_trans[:, 0]) - 0.5 * w, torch.zeros(N, device=device)) + eps,
                        torch.maximum(torch.abs(points_trans[:, 1]) - 0.5 * h, torch.zeros(N, device=device)) + eps)
+
+
+def xywha_to_gaussian(obbs: torch.Tensor) -> torch.Tensor:
+    """
+    Computes multivariate Gaussian distribution from rectangular bbox in (x, y, width, height, angle) representation.
+
+    :param obbs: (Tensor[B, 5]) B batches of bbox parameters in (x, y, width, height, angle) representation.
+    :return: (Tensor[B, 2]) Mean vectors, (Tensor[B, 2, 2]) Covariance matrices.
+    """
+    device = obbs.device
+
+    B = obbs.shape[0]  # Batch size
+    x, y, w, h, c, s = obbs[:, 0], obbs[:, 1], obbs[:, 2], obbs[:, 3], obbs[:, 4], obbs[:, 5]  # TODO make this prettier
+    mu = torch.stack([x, y], dim=-1)
+    R = torch.stack([c, -s, s, c], dim=-1).reshape(-1, 2, 2).to(device)
+    l1, l2 = w ** 2 / 4, h ** 2 / 4
+    L = torch.stack([l1, torch.zeros(B), torch.zeros(B), l2], dim=-1).reshape(-1, 2, 2).to(device)
+    S = R @ L @ R.transpose(dim0=-2, dim1=-1)
+
+    return mu, S
+
+
+def rep_points_to_gaussian(rep_points: torch.Tensor) -> torch.Tensor:
+    """
+    Computes multivariate Gaussian distribution from RepPoints.
+
+    :param rep_points: (Tensor[B, M, 2]) B batches of M RepPoints each.
+    :return: (Tensor[B, 2]) Mean vectors, (Tensor[B, 2, 2]) Covariance matrices.
+    """
+    M = rep_points.shape[1] # Number of RepPoints in each batch
+
+    points_xy = rep_points.reshape(-1, M, 2)
+    mu = torch.mean(points_xy, dim=-2)
+    Sxx = torch.var(points_xy[:, :, 0], dim=-1, unbiased=False)
+    Syy = torch.var(points_xy[:, :, 1], dim=-1, unbiased=False)
+    Sxy = torch.mean((points_xy[:, :, 0] - mu[:, 0].reshape(-1, 1)) * (points_xy[:, :, 1] - mu[:, 1].reshape(-1, 1)), dim=-1)
+    S = torch.stack([Sxx, Sxy, Sxy, Syy], dim=-1).reshape(-1, 2, 2)
+
+    return mu, S
+
+
+def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tensor, S2: torch.Tensor) -> torch.Tensor:
+    """
+    Kullback-Leibler (KL) divergence of two multivariate normal distributions.
+
+    :param mu1: (Tensor[2]) Mean vector - 1st distribution.
+    :param S1: (Tensor[2, 2]) Covariance matrix - 1st distribution.
+    :param mu2: (Tensor[2]) Mean vector - 2nd distribution.
+    :param S2: (Tensor[2, 2]) Covariance matrix - 2nd distribution.
+    :return: (Tensor[1]) KL divergence between the two distributions.
+    """
+    det1, det2 = torch.det(S1), torch.det(S2)
+    Sinv2 = torch.inverse(S2)
+
+    trace_prod = torch.trace(Sinv2 @ S1)
+    log_det_diff = torch.log(det2) - torch.log(det1)
+    quad_form = (mu2 - mu1).T @ Sinv2 @ (mu2 - mu1)
+
+    return 0.5 * (trace_prod + log_det_diff + quad_form - 2)
