@@ -406,17 +406,19 @@ def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tenso
     """
     Kullback-Leibler (KL) divergence of two multivariate normal distributions.
 
-    :param mu1: (Tensor[2]) Mean vector - 1st distribution.
-    :param S1: (Tensor[2, 2]) Covariance matrix - 1st distribution.
-    :param mu2: (Tensor[2]) Mean vector - 2nd distribution.
-    :param S2: (Tensor[2, 2]) Covariance matrix - 2nd distribution.
-    :return: (Tensor[1]) KL divergence between the two distributions.
+    :param mu1: (Tensor[B, 2]) B batches of mean vectors - 1st distribution.
+    :param S1: (Tensor[B, 2, 2]) B batches of covariance matrices - 1st distribution.
+    :param mu2: (Tensor[B, 2]) B batches of mean vectors - 2nd distribution.
+    :param S2: (Tensor[B, 2, 2]) B batches of covariance matrices - 2nd distribution.
+    :return: (Tensor[B]) KL divergence between the two distributions.
     """
     det1, det2 = torch.det(S1), torch.det(S2)
     Sinv2 = torch.inverse(S2)
 
-    trace_prod = torch.trace(Sinv2 @ S1)
+    trace_prod = torch.einsum('bii->b', Sinv2 @ S1)
     log_det_diff = torch.log(det2) - torch.log(det1)
-    quad_form = (mu2 - mu1).T @ Sinv2 @ (mu2 - mu1)
+    quad_form = (mu2 - mu1).unsqueeze(dim=-2) @ Sinv2 @ (mu2 - mu1).unsqueeze(dim=-1)
+    quad_form = quad_form.squeeze(dim=-2).squeeze(dim=-1)
+    print(quad_form.shape)
 
     return 0.5 * (trace_prod + log_det_diff + quad_form - 2)
