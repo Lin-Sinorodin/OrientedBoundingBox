@@ -3,6 +3,9 @@ Utilities for oriented bounding box manipulation and GIoU.
 Credit: https://github.com/jw9730/ori-giou
 """
 import torch
+from einops import rearrange
+
+NUM_CLASSES = 15
 
 
 def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.tensor:
@@ -445,7 +448,7 @@ def rep_points_to_gaussian(rep_points: torch.Tensor) -> torch.Tensor:
     return mu, S
 
 
-def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tensor, S2: torch.Tensor) -> torch.Tensor:
+def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tensor, S2: torch.Tensor, batched=False) -> torch.Tensor:
     """
     Kullback-Leibler (KL) divergence of two multivariate normal distributions.
 
@@ -453,28 +456,35 @@ def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tenso
     :param S1: (Tensor[2, 2]) Covariance matrix - 1st distribution.
     :param mu2: (Tensor[2]) Mean vector - 2nd distribution.
     :param S2: (Tensor[2, 2]) Covariance matrix - 2nd distribution.
+    :param batched: (bool) Whether the calculation should be batched.
     :return: (Tensor[1]) KL divergence between the two distributions.
     """
     det1, det2 = torch.det(S1), torch.det(S2)
     Sinv2 = torch.inverse(S2)
 
-    trace_prod = torch.trace(Sinv2 @ S1)
+    if batched:
+        trace_prod = torch.einsum('bii->b', Sinv2 @ S1)
+    else:
+        trace_prod = torch.trace(Sinv2 @ S1)
     log_det_diff = torch.log(det2) - torch.log(det1)
-    quad_form = (mu2 - mu1).T @ Sinv2 @ (mu2 - mu1)
+    if batched:
+        quad_form = ((mu2 - mu1).unsqueeze(dim=-2) @ Sinv2) @ (mu2 - mu1).unsqueeze(dim=-1)
+        quad_form = quad_form.squeeze()
+    else:
+        quad_form = (mu2 - mu1).T @ Sinv2 @ (mu2 - mu1)
 
     return 0.5 * (trace_prod + log_det_diff + quad_form - 2)
 
 
 if __name__ == '__main__':
-    pts1, pts2 = torch.rand(1, 9, 2), 2 * torch.rand(1, 9, 2)
-    pts1.requires_grad = True
-    pts2.requires_grad = True
+    pts1, pts2 = torch.rand(7, 9, 2), 2 * torch.rand(7, 9, 2)
 
     mu1, S1 = rep_points_to_gaussian(pts1)
     mu2, S2 = rep_points_to_gaussian(pts2)
 
-    kl_div = kl_divergence_gaussian(mu1, S1, mu2, S2)
-    kl_div.backward()
+    kl_div_batched = kl_divergence_gaussian(mu1, S1, mu2, S2, batched=True)
+    kl_div_unbatched = torch.zeros(mu1.shape[0])
+    for i in range(mu1.shape[0]):
+        kl_div_unbatched[i] = kl_divergence_gaussian(mu1[i], S1[i], mu2[i], S2[i], batched=False)
 
-    print(pts1.grad)
-    print(pts2.grad)
+    print(kl_div_batched == kl_div_unbatched)
