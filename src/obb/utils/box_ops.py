@@ -3,6 +3,9 @@ Utilities for oriented bounding box manipulation and GIoU.
 Credit: https://github.com/jw9730/ori-giou
 """
 import torch
+from torch.distributions import MultivariateNormal, kl_divergence
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.tensor:
@@ -372,12 +375,13 @@ def xywha_to_gaussian(obbs: torch.Tensor) -> torch.Tensor:
     """
     device = obbs.device
 
+    scale = 3
     B = obbs.shape[0]  # Batch size
     x, y, w, h, c, s = obbs[:, 0], obbs[:, 1], obbs[:, 2], obbs[:, 3], obbs[:, 4], obbs[:, 5]  # TODO make this prettier
     mu = torch.stack([x, y], dim=-1)
     R = torch.stack([c, -s, s, c], dim=-1).reshape(-1, 2, 2).to(device)
-    l1, l2 = w ** 2 / 4, h ** 2 / 4
-    L = torch.stack([l1, torch.zeros(B), torch.zeros(B), l2], dim=-1).reshape(-1, 2, 2).to(device)
+    l1, l2 = w ** 2 / (4 * scale ** 2), h ** 2 / (4 * scale ** 2)
+    L = torch.stack([l1, torch.zeros(B).to(device), torch.zeros(B).to(device), l2], dim=-1).reshape(-1, 2, 2)
     S = R @ L @ R.transpose(dim0=-2, dim1=-1)
 
     return mu, S
@@ -390,7 +394,7 @@ def rep_points_to_gaussian(rep_points: torch.Tensor) -> torch.Tensor:
     :param rep_points: (Tensor[B, M, 2]) B batches of M RepPoints each.
     :return: (Tensor[B, 2]) Mean vectors, (Tensor[B, 2, 2]) Covariance matrices.
     """
-    M = rep_points.shape[1] # Number of RepPoints in each batch
+    M = rep_points.shape[1]  # Number of RepPoints in each batch
 
     points_xy = rep_points.reshape(-1, M, 2)
     mu = torch.mean(points_xy, dim=-2)
@@ -420,3 +424,4 @@ def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tenso
     quad_form = (mu2 - mu1).T @ Sinv2 @ (mu2 - mu1)
 
     return 0.5 * (trace_prod + log_det_diff + quad_form - 2)
+
