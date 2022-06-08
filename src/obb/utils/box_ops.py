@@ -3,6 +3,9 @@ Utilities for oriented bounding box manipulation and GIoU.
 Credit: https://github.com/jw9730/ori-giou
 """
 import torch
+from torch.distributions import MultivariateNormal, kl_divergence
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.tensor:
@@ -307,30 +310,6 @@ def xyxy_to_xywha(points: torch.Tensor, explicit_angle=False):
         return x, y, w, h, c, s
 
 
-def xywha_to_xyxy(obbs: torch.Tensor) -> torch.Tensor:
-    """
-    Converts rectangular bbox from ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) to (x, y, width, height, angle).
-
-    :param obbs: Rectangle in (x, y, width, height, angle) representation.
-    :return: Rectangle in ((x1, y1), (x2, y2), (x3, y3), (x4, y4)) representation, sorted counterclockwise.
-    """
-    device = obbs.device
-
-    x0, y0, w, h, c, s = obbs[:, 0], obbs[:, 1], obbs[:, 2], obbs[:, 3], obbs[:, 4], obbs[:, 5]  # TODO it's ugly
-    x0y0 = torch.stack([x0, y0], dim=-1).repeat(1, 4).to(device)
-
-    R = torch.stack([c, -s, s, c], dim=-1).reshape(-1, 2, 2).to(device)
-
-    x1y1 = (R @ torch.stack([-w / 2, -h / 2], dim=-1).unsqueeze(dim=-1)).squeeze(dim=-1)
-    x2y2 = (R @ torch.stack([w / 2, -h / 2], dim=-1).unsqueeze(dim=-1)).squeeze(dim=-1)
-    x3y3 = (R @ torch.stack([w / 2, h / 2], dim=-1).unsqueeze(dim=-1)).squeeze(dim=-1)
-    x4y4 = (R @ torch.stack([-w / 2, h / 2], dim=-1).unsqueeze(dim=-1)).squeeze(dim=-1)
-
-    xyxy = x0y0 + torch.cat([x1y1, x2y2, x3y3, x4y4], dim=-1).to(device)
-
-    return xyxy
-
-
 def is_inside_box(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
     """
     Determines for each point whether it lies inside the bbox.
@@ -396,33 +375,16 @@ def xywha_to_gaussian(obbs: torch.Tensor) -> torch.Tensor:
     """
     device = obbs.device
 
+    scale = 3
     B = obbs.shape[0]  # Batch size
     x, y, w, h, c, s = obbs[:, 0], obbs[:, 1], obbs[:, 2], obbs[:, 3], obbs[:, 4], obbs[:, 5]  # TODO make this prettier
     mu = torch.stack([x, y], dim=-1)
     R = torch.stack([c, -s, s, c], dim=-1).reshape(-1, 2, 2).to(device)
-    l1, l2 = w ** 2 / 4, h ** 2 / 4
-    L = torch.stack([l1, torch.zeros(B), torch.zeros(B), l2], dim=-1).reshape(-1, 2, 2).to(device)
+    l1, l2 = w ** 2 / (4 * scale ** 2), h ** 2 / (4 * scale ** 2)
+    L = torch.stack([l1, torch.zeros(B).to(device), torch.zeros(B).to(device), l2], dim=-1).reshape(-1, 2, 2)
     S = R @ L @ R.transpose(dim0=-2, dim1=-1)
 
     return mu, S
-
-
-def gaussian_to_xywha(mu: torch.Tensor, S: torch.Tensor) -> torch.Tensor:
-    """
-    Converts multivariate Gaussian distribution to bbox in (x, y, width, height, angle) representation.
-
-    :param mu: (Tensor[B, 2]) B batches of mean vectors.
-    :param S: (Tensor[B, 2, 2]) B batches of covariance matrices.
-    :return: (Tensor[B, 6]) B batches of bboxes in (x, y, width, height, angle) representation.
-    """
-    scale = 3
-
-    x0, y0 = mu[:, 0], mu[:, 1]
-    R, L, Rh = torch.svd(S)
-    w, h = 2 * scale * torch.sqrt(L[:, 0]), 2 * scale * torch.sqrt(L[:, 1])
-    c, s = R[:, 0, 0], R[:, 1, 0]
-
-    return torch.stack([x0, y0, w, h, c, s], dim=-1)
 
 
 def rep_points_to_gaussian(rep_points: torch.Tensor) -> torch.Tensor:
@@ -432,7 +394,7 @@ def rep_points_to_gaussian(rep_points: torch.Tensor) -> torch.Tensor:
     :param rep_points: (Tensor[B, M, 2]) B batches of M RepPoints each.
     :return: (Tensor[B, 2]) Mean vectors, (Tensor[B, 2, 2]) Covariance matrices.
     """
-    M = rep_points.shape[1] # Number of RepPoints in each batch
+    M = rep_points.shape[1]  # Number of RepPoints in each batch
 
     points_xy = rep_points.reshape(-1, M, 2)
     mu = torch.mean(points_xy, dim=-2)
@@ -463,17 +425,3 @@ def kl_divergence_gaussian(mu1: torch.Tensor, S1: torch.Tensor, mu2: torch.Tenso
 
     return 0.5 * (trace_prod + log_det_diff + quad_form - 2)
 
-
-if __name__ == '__main__':
-    pts1, pts2 = torch.rand(1, 9, 2), 2 * torch.rand(1, 9, 2)
-    pts1.requires_grad = True
-    pts2.requires_grad = True
-
-    mu1, S1 = rep_points_to_gaussian(pts1)
-    mu2, S2 = rep_points_to_gaussian(pts2)
-
-    kl_div = kl_divergence_gaussian(mu1, S1, mu2, S2)
-    kl_div.backward()
-
-    print(pts1.grad)
-    print(pts2.grad)
