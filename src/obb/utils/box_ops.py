@@ -396,12 +396,13 @@ def xywha_to_gaussian(obbs: torch.Tensor) -> torch.Tensor:
     """
     device = obbs.device
 
+    scale = 3
     B = obbs.shape[0]  # Batch size
     x, y, w, h, c, s = obbs[:, 0], obbs[:, 1], obbs[:, 2], obbs[:, 3], obbs[:, 4], obbs[:, 5]  # TODO make this prettier
     mu = torch.stack([x, y], dim=-1)
     R = torch.stack([c, -s, s, c], dim=-1).reshape(-1, 2, 2).to(device)
-    l1, l2 = w ** 2 / 4, h ** 2 / 4
-    L = torch.stack([l1, torch.zeros(B), torch.zeros(B), l2], dim=-1).reshape(-1, 2, 2).to(device)
+    l1, l2 = w ** 2 / (4 * scale ** 2), h ** 2 / (4 * scale ** 2)
+    L = torch.stack([l1, torch.zeros(B).to(device), torch.zeros(B).to(device), l2], dim=-1).reshape(-1, 2, 2)
     S = R @ L @ R.transpose(dim0=-2, dim1=-1)
 
     return mu, S

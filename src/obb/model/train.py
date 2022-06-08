@@ -1,8 +1,11 @@
 import time
 import torch
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LambdaLR, StepLR, MultiStepLR, ReduceLROnPlateau
 from torch import nn
 from tqdm import tqdm
+from random import randint
+from math import log2
 
 from obb.utils.dataset import Dataset
 from obb.model.custom_model import DetectionModel
@@ -20,28 +23,21 @@ def elapsed_time(start_time):
 
 
 if __name__ == '__main__':
-    train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
-    train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    scales = [0.5, 1.0, 1.5]
+    train_dataset_lst = [Dataset(path=f'../../../assets/DOTA_scaled/scale_{scale:.1f}/train_split') for scale in scales]
+    train_data_loader_lst = [DataLoader(train_dataset, batch_size=1, shuffle=True) for train_dataset in train_dataset_lst]
 
     model = DetectionModel().to(device)
     rep_points_loss = OrientedRepPointsLoss(strides=model.feature_map_strides)
 
-    learning_rate = 1e-3
-    weight_decay = 5e-5
-    epochs = 300
-    batch_size = 4
-
-    # optimizer = torch.optim.Adam(
-    #     params=model.parameters(),
-    #     lr=learning_rate,
-    #     weight_decay=weight_decay,
-    #     amsgrad=True
-    # )
+    epochs = 100000000
+    batch_size = 8
 
     optimizer = torch.optim.SGD(params=model.parameters(),
-                                lr=1e-7,
+                                lr=1e-3,
                                 momentum=0.9,
                                 weight_decay=1e-4)
+    scheduler = ReduceLROnPlateau(optimizer, patience=5, threshold=1e-2)
 
     train_accuracy_dict = {}
     valid_accuracy_dict = {}
@@ -53,21 +49,30 @@ if __name__ == '__main__':
     start_time = time.time()
 
     # Load previous state
-    last_epoch = 240
+    last_epoch = 23
     if last_epoch > 0:
-        checkpoint = torch.load(f'./checkpoints_sample/epoch_{last_epoch}.pt', map_location=torch.device('cpu'))
+        checkpoint = torch.load(f'./checkpoints/epoch_{last_epoch}.pt', map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
+        # optimizer.load_state_dict(checkpoint['optimizer'])
+        # scheduler.load_state_dict(checkpoint['scheduler'])
         epoch = checkpoint['epoch']
         loss = checkpoint['loss']
 
     for epoch in range(last_epoch + 1, epochs + 1):
+        # choose random scale
+        idx = randint(0, len(scales) - 1)
+        idx = 0
+        scale = scales[idx]
+        train_data_loader = train_data_loader_lst[idx]
+        print(f'Scale: {scale}')
+        print(f"Learning rate: {optimizer.param_groups[0]['lr']}")
+
         model.train()
 
         running_loss = 0.0
         running_cls_loss = 0.0
-        running_obj_loss = 0.0
-        running_reg_loss_init = 0.0
+        running_loc_loss_init = 0.0
+        running_spc_loss_init = 0.0
         running_reg_loss_refine = 0.0
 
         cnt = 0
@@ -78,9 +83,9 @@ if __name__ == '__main__':
         for img, obb, object_class in tqdm(train_data_loader):
 
             img = img.to(device)
-            obb = obb.squeeze(dim=0)
+            obb = obb.squeeze(dim=0).to(device)
 
-            object_class = object_class.squeeze(dim=0)
+            object_class = object_class.squeeze(dim=0).to(device)
 
             rep_points_init, rep_points_refine, classification = model(img)  # forward pass
 
@@ -96,23 +101,34 @@ if __name__ == '__main__':
                 loss.backward()  # backpropagation
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=35, norm_type=2)  # clip gradient
                 optimizer.step()  # update parameters
+
+                # Calculate total gradient norm
+                total_norm = 0
+                parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+                for p in parameters:
+                    param_norm = p.grad.detach().data.norm(2)
+                    total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** 0.5
+                print(f'Gradient norm: {total_norm:.4f}')
+
                 batch_cnt = 0
 
                 # update running quantities
                 running_loss = (cnt * running_loss + loss.data.item()) / (cnt + 1)
-                running_obj_loss = (cnt * running_obj_loss + loss_dict['objectness'].data.item()) / (cnt + 1)
+                running_cls_loss = (cnt * running_cls_loss + loss_dict['classification'].data.item()) / (cnt + 1)
                 if len(object_class) > 0:
-                    running_cls_loss = (cnt_pos * running_cls_loss + loss_dict['classification'].data.item()) / (cnt_pos + 1)
-                    running_reg_loss_init = (cnt_pos * running_reg_loss_init + loss_dict['regression_init'].data.item()) / (cnt_pos + 1)
+                    running_loc_loss_init = (cnt_pos * running_loc_loss_init + loss_dict['localization_init'].data.item()) / (cnt_pos + 1)
+                    running_spc_loss_init = (cnt_pos * running_spc_loss_init + loss_dict['spatial_constraint_init'].data.item()) / (cnt_pos + 1)
                     running_reg_loss_refine = (cnt_pos * running_reg_loss_refine + loss_dict['regression_refine'].data.item()) / (cnt_pos + 1)
                     cnt_pos += 1
 
                 cnt += 1
 
                 print()
+                print(f"Loss: Running {running_loss:.4f}  |  Current {float(loss):.4f}")
                 print(f"Classification: Running {running_cls_loss:.4f}  |  Current {float(loss_dict['classification']):.4f}")
-                print(f"Objectness: Running {running_obj_loss:.4f}  |  Current {float(loss_dict['objectness']):.4f}")
-                print(f"Regression init: Running {running_reg_loss_init:.4f}  |  Current {float(loss_dict['regression_init']):.4f}")
+                print(f"Localization init: Running {running_loc_loss_init:.4f}  |  Current {float(loss_dict['localization_init']):.4f}")
+                print(f"Spatial constraint init: Running {running_spc_loss_init:.4f}  |  Current {float(loss_dict['spatial_constraint_init']):.4f}")
                 print(f"Regression refine: Running {running_reg_loss_refine:.4f}  |  Current {float(loss_dict['regression_refine']):.4f}")
                 print(f'Number of objects: {len(object_class)}')
                 print('Class precisions:')
@@ -129,10 +145,15 @@ if __name__ == '__main__':
         # save state
         state = {
             'epoch': epoch,
+            'scale': scale,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
             'loss': running_loss
         }
 
-        if epoch % 10 == 0:
-            torch.save(state, f'./checkpoints_sample/epoch_{epoch}.pt')
+        torch.save(state, f'./checkpoints/epoch_{epoch}.pt')
+
+        # update learning rate
+        scheduler.step(running_reg_loss_refine)
+

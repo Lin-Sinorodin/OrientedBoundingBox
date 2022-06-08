@@ -16,7 +16,7 @@ def initialize_rep_points_centers(feature_map_size: Tuple[int, int]) -> torch.te
              is (x, y) point in feature map coordinates.
     """
     h, w = feature_map_size
-    grid_x, grid_y = torch.meshgrid(torch.arange(0., w), torch.arange(0., h))
+    grid_x, grid_y = torch.meshgrid(torch.arange(0., w), torch.arange(0., h), indexing='xy')
     return rearrange(torch.stack([grid_x, grid_y], dim=-1), 'w h xy -> 1 xy w h')
 
 
@@ -30,7 +30,7 @@ def initialize_rep_points(feature_map_size: Tuple[int, int]) -> torch.tensor:
     :return: tensor of center points with shape [batch, 2 * num_offsets, height, width].
     """
     points_center = initialize_rep_points_centers(feature_map_size)
-    points_offset = torch.stack(torch.meshgrid([torch.tensor([-1, 0, 1])] * 2), dim=-1).reshape(1, -1, 1, 1)
+    points_offset = torch.stack(torch.meshgrid([torch.tensor([-1, 0, 1])] * 2, indexing='xy'), dim=-1).reshape(1, -1, 1, 1)
     rep_points_init = repeat(points_center, '1 xy h w -> 1 (repeat xy) h w', repeat=9) + points_offset
     return torch.clamp(rep_points_init, min=0, max=max(feature_map_size))
 
@@ -63,7 +63,7 @@ class OrientedRepPointsHead(nn.Module):
         # classification subnet
         self.classification_conv = self._get_features_subnet()
         self.classification_deform_conv = DeformConv2d(in_channels=256, out_channels=256, **self.conv_params_without_padding_mode)
-        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes + 1, kernel_size=1)
+        self.classification_conv_out = nn.Conv2d(in_channels=256, out_channels=num_classes, kernel_size=1)
 
         # localization subnet
         self.localization_conv = self._get_features_subnet()
@@ -88,14 +88,20 @@ class OrientedRepPointsHead(nn.Module):
         offset1 = self.points_init_offset_conv(
             self.relu(self.points_init_conv(localization_features))
         )
+
+        # adjust offsets to match deform_conv2d convention (height offset first, then width offset)
+        offset1_deform = offset1.clone()
+        offset1_deform[:, ::2] = offset1_deform[:, 1::2]
+        offset1_deform[:, 1::2] = offset1[:, ::2]
+
         offset2 = self.points_refine_offset_conv(
-            self.relu(self.points_refine_deform_conv(input=localization_features, offset=offset1))
+            self.relu(self.points_refine_deform_conv(input=localization_features, offset=offset1_deform))
         )
 
         # get points classification
         classification_features = self.classification_conv(feature).to(device)
         classification = self.classification_conv_out(
-            self.relu(self.classification_deform_conv(input=classification_features, offset=offset1))
+            self.relu(self.classification_deform_conv(input=classification_features, offset=offset1_deform))
         )
 
         # get rep points
