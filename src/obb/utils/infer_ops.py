@@ -58,7 +58,6 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
         S_curr = S_curr[above_cls_thr_idx]
 
         while classification_curr.shape[0] > 0:
-            print(classification_curr.shape[0])
             classification_max_idx = torch.argmax(classification_curr[:, class_num - 1])
             classification_final.append(classification_curr[classification_max_idx])
             rep_points_final.append(rep_points_curr[classification_max_idx])
@@ -66,10 +65,8 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
             # Compute KL divergence of every distribution with the one that has maximal score
             mu_max = mu_curr[classification_max_idx]
             S_max = S_curr[classification_max_idx]
-            kl_with_cls_max = torch.Tensor(classification_curr.shape[0])
-            # TODO make KL divergence calculation batched
-            for i in range(classification_curr.shape[0]):
-                kl_with_cls_max[i] = kl_divergence_gaussian(mu_max, S_max, mu_curr[i], S_curr[i])
+            B = mu_curr.shape[0]
+            kl_with_cls_max = kl_divergence_gaussian(mu_max.expand(B, 2), S_max.expand(B, 2, 2), mu_curr, S_curr, batched=True)
 
             # Discard predictions with KL divergence below threshold
             keep = torch.where(kl_with_cls_max > nms_thr)
