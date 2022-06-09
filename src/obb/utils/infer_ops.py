@@ -66,10 +66,22 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
             mu_max = mu_curr[classification_max_idx]
             S_max = S_curr[classification_max_idx]
             B = mu_curr.shape[0]
-            kl_with_cls_max = kl_divergence_gaussian(mu_max.expand(B, 2), S_max.expand(B, 2, 2), mu_curr, S_curr, batched=True)
+            mu_max = mu_max.expand(B, 2)
+            S_max = S_max.expand(B, 2, 2)
+            kl_with_cls_max = kl_divergence_gaussian(mu_max, S_max, mu_curr, S_curr, batched=True)
 
-            # Discard predictions with KL divergence below threshold
-            keep = torch.where(kl_with_cls_max > nms_thr)
+            # Compute distance between prediction center and gt bbox
+            xywha_max = gaussian_to_xywha(mu_max, S_max)
+            x_max, y_max, w_max, h_max, c_max, s_max = xywha_max[:, 0], xywha_max[:, 1], xywha_max[:, 2], \
+                                                       xywha_max[:, 3], xywha_max[:, 4], xywha_max[:, 5]
+            R = torch.stack([c_max, s_max, -s_max, c_max], dim=-1).reshape(-1, 2, 2)
+            mu_curr_centered = torch.stack([mu_curr[:, 0] - x_max, mu_curr[:, 1] - y_max], dim=-1)
+            mu_curr_trans = (R @ mu_curr_centered.unsqueeze(dim=-1)).squeeze(dim=-1)
+            inside_box = (torch.abs(mu_curr_trans[:, 0]) < 0.5 * w_max) * (torch.abs(mu_curr_trans[:, 1]) < 0.5 * h_max)
+
+            # Discard predictions with KL divergence below threshold and centers outside gt bbox
+            keep = torch.logical_and(kl_with_cls_max > nms_thr, torch.logical_not(inside_box))
+            # keep = kl_with_cls_max > nms_thr
             classification_curr = classification_curr[keep]
             rep_points_curr = rep_points_curr[keep]
             mu_curr = mu_curr[keep]
