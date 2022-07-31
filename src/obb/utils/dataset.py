@@ -7,6 +7,11 @@ import torch
 import torch.utils.data
 import torchvision
 from typing import List, Tuple
+from random import choice
+
+from torchvision.transforms.functional import resize, rotate
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 DOTA_V1_0_NAMES = [
     'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle',
@@ -90,21 +95,53 @@ class Label:
             rect = cv2.minAreaRect(bounding_box.reshape((4, 2)))
             x_center, y_center = rect[0]
             width, height = rect[1]
-            angle = rect[2]   # [-90, 0)
+            angle = rect[2]  # [-90, 0)
 
             xywha.append([x_center, y_center, width, height, angle])
 
         return np.float32(np.array(xywha))
 
 
+def resize_label(lbl: torch.Tensor, s: float) -> torch.Tensor:
+    """Resize gt label"""
+    return lbl / s
+
+
+def resize_image(img: torch.Tensor, s: float) -> torch.Tensor:
+    """Scale image by factor s"""
+    h, w = img.shape[1:]
+    return resize(img, [int(h / s), int(w / s)])
+
+
+def rotate_label(lbl: torch.Tensor, angle: float, h: float, w: float) -> torch.Tensor:
+    """Rotate gt label by given angle"""
+    lbl = lbl.to(device)
+    center = torch.Tensor([w / 2, h / 2]).to(device)
+    lbl_centered = lbl.reshape(-1, 4, 2) - center
+    c, s = torch.cos(angle * torch.pi / 180), torch.sin(angle * torch.pi / 180)
+    R = torch.stack([c, s, -s, c], dim=-1).reshape(2, 2).to(device)  # Counter-clockwise, left-handed coordinates
+    lbl_rotated = R @ lbl_centered.unsqueeze(dim=-1)
+    lbl_recentered = center + lbl_rotated.squeeze(dim=-1)
+    return lbl_recentered.reshape(-1, 8)
+
+
+def rotate_image(img: torch.Tensor, angle: float) -> torch.Tensor:
+    """Rotate image by given angle"""
+    return rotate(img, float(angle))
+
+
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, path: str, obb_format: str = 'xyxy', return_features: bool = False):
+    def __init__(self, path: str, obb_format: str = 'xyxy', return_features: bool = False, scale_jitter: bool = False, rotation_jitter: bool = False):
         obb_formats = ['xyxy', 'xywha']
         assert obb_format in obb_formats, f'Unknown obb format: {obb_format}. Available formats: {obb_formats}'
 
         self.path = path
         self.obb_format = obb_format
         self.return_features = return_features
+        self.scale_jitter = scale_jitter
+        self.rotation_jitter = rotation_jitter
+        self.scale_lst = [1, 0.5, 2]
+        self.scale_idx = 0
 
         self.images_dir = '/'.join([self.path, 'images'])
         self.labels_dir = '/'.join([self.path, 'labelTxt'])
@@ -162,14 +199,26 @@ class Dataset(torch.utils.data.Dataset):
             return P3, P4, P5, obb, objects_class
         else:
             img = self._get_image(idx)
+            if self.scale_jitter:
+                # Rescale sample by current scale
+                s = self.scale_lst[self.scale_idx]
+                self.scale_idx = (self.scale_idx + 1) % len(self.scale_lst)
+                img = resize_image(img, s)
+                obb = resize_label(obb, s)
+            if self.rotation_jitter and len(obb) > 0:
+                # Rotate image by random angle
+                angle = -45 + 90 * torch.rand(1)  # Degrees
+                h, w = img.shape[1:]
+                img = rotate_image(img, angle)
+                obb = rotate_label(obb, angle, h, w)
             return img, obb, objects_class
 
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    # dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
-    # dataset_downloader.download_data_from_drive()
+    dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
+    dataset_downloader.download_data_from_drive()
 
     train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
