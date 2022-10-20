@@ -1,14 +1,16 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from typing import Dict
 from einops import rearrange
 from kornia.losses import focal_loss, binary_focal_loss_with_logits
 from sklearn.metrics import precision_score, recall_score
+from math import log
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
-from obb.utils.box_ops import is_inside_box, out_of_box_distance
-
+from obb.utils.box_ops import is_inside_box, out_of_box_distance, kl_divergence_gaussian, rep_points_to_gaussian, \
+    xywha_to_gaussian, xyxy_to_xywha
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -341,6 +343,14 @@ def out_of_box_loss(gt_points, pred_points):
     return torch.mean(dists)
 
 
+def kl_divergence_loss(kl_div):
+    return 4 * (0.5 - 1 / (2 + torch.sqrt(kl_div)))
+
+
+def kl_divergence_score(kl_div):
+    return 1 / (2 + torch.sqrt(kl_div))
+
+
 class OrientedRepPointsLoss(nn.Module):
     def __init__(self, strides):
         super().__init__()
@@ -349,13 +359,13 @@ class OrientedRepPointsLoss(nn.Module):
         self.feature_maps_names = list(self.strides.keys())
 
         # balance parameters between components of the loss. values from oriented rep points config file.
-        self.classification_weight = 1.
-        self.init_localization_weight = 0.3
+        self.classification_pos_weight = 0.5
+        self.classification_neg_weight = 0.5
+        self.init_localization_weight = 0.5
         self.refine_localization_weight = 1.
         self.init_spatial_constraint_weight = 0.05
         self.refine_spatial_constraint_weight = 0.1
 
-        # self.init_assigner = OBBPointAssigner()
         self.fine_assigner = SimpleAssigner()
         self.coarse_assigner = OBBPointAssigner()
 
@@ -417,7 +427,7 @@ class OrientedRepPointsLoss(nn.Module):
             h, w = raw_rep_points_init[feature_map].shape[2:]
             stride = 2 ** int(feature_map[1])
             grid_x, grid_y = torch.meshgrid(torch.arange(0., w * stride, stride).to(device),
-                                            torch.arange(0., h * stride, stride).to(device))
+                                            torch.arange(0., h * stride, stride).to(device), indexing='xy')
             centers1 = rearrange(torch.stack([grid_x, grid_y], dim=-1), 'h w xy -> 1 xy h w')
             centers2 = centers1.clone()
 
@@ -436,44 +446,62 @@ class OrientedRepPointsLoss(nn.Module):
 
         return centers_init, centers_refine
 
-    def _box_regression_loss(self, rep_points, gt_obb, assigned_gt_idxs, assigned_labels, ext_giou_loss_mask=None):
+    def _box_regression_loss(self, rep_points, gt_obb, assigned_gt_idxs, assigned_labels, ext_kl_score_mask=None):
         # initialization stage assigner
         positive_samples_idx = torch.where(assigned_labels > 0)
         positive_assigned_gt_idxs = assigned_gt_idxs[positive_samples_idx]
         positive_rep_points = rep_points[positive_samples_idx]
-        if ext_giou_loss_mask is not None:
-            positive_assigned_gt_idxs = positive_assigned_gt_idxs[ext_giou_loss_mask]
-            positive_rep_points = positive_rep_points[ext_giou_loss_mask]
-
-        giou_loss_mask = torch.zeros(positive_rep_points.shape[0], dtype=torch.bool, device=device)
+        if ext_kl_score_mask is not None:
+            positive_assigned_gt_idxs = positive_assigned_gt_idxs[ext_kl_score_mask]
+            positive_rep_points = positive_rep_points[ext_kl_score_mask]
 
         if gt_obb.ndim == 1:
-            return torch.Tensor([0.]), torch.Tensor([0.]), giou_loss_mask
+            return torch.Tensor([0.]).to(device), torch.Tensor([0.]).to(device), None
+
+        gt_obb.requires_grad = False
 
         # initialize losses with 0
         localization_loss = torch.zeros(1, dtype=torch.float, device=device)
         spatial_constraint_loss = torch.zeros(1, dtype=torch.float, device=device)
+        kl_score = torch.zeros(positive_rep_points.shape[0], dtype=torch.float, device=device)
+        out_of_box_mask = torch.zeros(positive_rep_points.shape[0], dtype=torch.float, device=device)
+
+        # convert gt and prediction obbs into Gaussian distributions
+        gt_mu_lst, gt_S_lst = rep_points_to_gaussian(gt_obb.reshape(-1, 4, 2))
+        gt_S_lst /= 9  # gts correspond to 3 standard deviations
+        pred_mu_lst, pred_S_lst = rep_points_to_gaussian(positive_rep_points.reshape(-1, 9, 2))
 
         # iterate over positive samples and add its loss to the total loss
         for i, pred_points in enumerate(positive_rep_points):
-            pred_points = pred_points.reshape(-1, 2)
-
-            # ground truth obb for the current rep points
             gt_box_idx = int(positive_assigned_gt_idxs[i]) - 1
+
+            gt_mu, gt_S = gt_mu_lst[gt_box_idx], gt_S_lst[gt_box_idx]
+            pred_mu, pred_S = pred_mu_lst[i], pred_S_lst[i]
+
             gt_points = gt_obb[gt_box_idx].reshape(-1, 2).float().to(device)
-            gt_points.requires_grad = False
-            pred_points_convex_hull = convex_hull(pred_points)
-            curr_giou_loss = giou_loss(gt_points, pred_points_convex_hull)
-            localization_loss += curr_giou_loss
-            giou_loss_mask[i] = (curr_giou_loss < 0.5)
-            spatial_constraint_loss += out_of_box_loss(gt_points, pred_points)
+            pred_points = positive_rep_points[i].reshape(-1, 2).float().to(device)
+
+            kl_div = kl_divergence_gaussian(gt_mu, gt_S, pred_mu, pred_S)
+            out_of_box_curr = out_of_box_loss(gt_points, pred_points)
+            localization_loss += kl_divergence_loss(kl_div)
+            spatial_constraint_loss += 0.
+
+            kl_score[i] = kl_divergence_score(kl_div)
+            out_of_box_mask[i] = out_of_box_curr
 
         # divide by number of positive samples
         if len(positive_rep_points) > 0:
             localization_loss /= len(positive_rep_points)
             spatial_constraint_loss /= len(positive_rep_points)
 
-        return localization_loss, spatial_constraint_loss, giou_loss_mask
+        # calculate adaptive score threshold
+        score_mean = kl_score.mean()
+        score_std = kl_score.std(unbiased=False)
+        kl_score_mask = (kl_score >= score_mean + score_std).to(device)
+        if not kl_score_mask.any():
+            kl_score_mask[torch.argmax(kl_score)] = 1.
+
+        return localization_loss, spatial_constraint_loss, kl_score_mask
 
     def get_loss(
             self,
@@ -506,58 +534,40 @@ class OrientedRepPointsLoss(nn.Module):
 
         # assign gt to every positive prediction
         assigned_gt_idxs_fine, assigned_labels_fine = self.fine_assigner.assign(centers_init, gt_obb, gt_labels)
-
         assigned_gt_idxs_coarse, assigned_labels_coarse = self.coarse_assigner.assign(centers_init, gt_obb, gt_labels)
 
-        pos_fine_idx = torch.where(assigned_labels_fine > 0)
-        neg_fine_idx = torch.where(assigned_labels_fine == 0)
-        assigned_labels_pos_fine = assigned_labels_fine[pos_fine_idx]
-        assigned_gt_idxs_pos_fine = assigned_gt_idxs_fine[pos_fine_idx]
-        classification_pos_fine = classification[pos_fine_idx]
-        classification_neg_fine = classification[neg_fine_idx]
-        obj_pos_fine = classification_pos_fine[:, 0]
-        cls_pos_fine = classification_pos_fine[:, 1:]
-        obj_neg_fine = classification_neg_fine[:, 0]
-        num_pos_fine = len(obj_pos_fine)
-        num_neg_fine = len(obj_neg_fine)
+        pos_idx_fine = torch.where(assigned_labels_fine > 0)
+        neg_idx_fine = torch.where(assigned_labels_fine == 0)
+        cls_pos_fine = classification[pos_idx_fine]
+        cls_neg_fine = classification[neg_idx_fine]
 
-        # objectness loss
-        if num_pos_fine > 0:
-            objectness_pos_loss = binary_focal_loss_with_logits(obj_pos_fine.reshape(1, -1),
-                                                                torch.ones(1, num_pos_fine).to(device),
-                                                                alpha=0.25, gamma=2, reduction='mean')
-        else:
-            objectness_pos_loss = torch.Tensor([0.]).to(device)
-
-        if num_neg_fine > 0:
-            objectness_neg_loss = binary_focal_loss_with_logits(obj_neg_fine.reshape(1, -1),
-                                                                torch.zeros(1, num_neg_fine).to(device),
-                                                                alpha=0.25, gamma=2, reduction='mean')
-        else:
-            objectness_neg_loss = torch.Tensor([0.]).to(device)
-
-        objectness_loss = objectness_pos_loss + objectness_neg_loss
+        pos_idx_coarse = torch.where(assigned_labels_coarse > 0)
+        neg_idx_coarse = torch.where(assigned_labels_coarse == 0)
+        assigned_labels_pos_coarse = assigned_labels_coarse[pos_idx_coarse]
+        cls_pos_coarse = classification[pos_idx_coarse]
+        cls_neg_coarse = classification[neg_idx_coarse]
 
         # box regression loss (initialization step)
-        localization_init_loss, spatial_constraint_init_loss, giou_loss_mask = self._box_regression_loss(
+        localization_init_loss, spatial_constraint_init_loss, kl_score_mask = self._box_regression_loss(
             rep_points_init,
             gt_obb,
             assigned_gt_idxs_coarse,
             assigned_labels_coarse
         )
-        box_regression_init_loss = (self.init_localization_weight * localization_init_loss +
-                                    self.init_spatial_constraint_weight * spatial_constraint_init_loss)
-
-        # giou_loss_mask_idx = torch.zeros(cls_pos_fine.shape[0], dtype=torch.bool, device=device)
-        # for i in range(len(gt_obb)):
-        #     if i + 1 in assigned_gt_idxs_coarse[assigned_gt_idxs_coarse > 0][giou_loss_mask]:
-        #         giou_loss_mask_idx[assigned_gt_idxs_pos_fine == i + 1] = True
-        # cls_pos_coarse = cls_pos_fine[giou_loss_mask_idx]
-        # assigned_labels_pos_coarse = assigned_labels_pos_fine[giou_loss_mask_idx]
+        box_regression_init_loss = (self.init_localization_weight * localization_init_loss
+                                    + self.init_spatial_constraint_weight * spatial_constraint_init_loss)
 
         # classification loss
-        classification_loss = focal_loss(cls_pos_fine, assigned_labels_pos_fine - 1,
-                                         alpha=0.25, gamma=2, reduction='mean')
+        if kl_score_mask is not None:
+            classification_pos_loss = focal_loss(cls_pos_coarse[kl_score_mask],
+                                                 assigned_labels_pos_coarse[kl_score_mask] - 1,
+                                                 alpha=0.25, gamma=2, reduction='mean')
+        else:
+            classification_pos_loss = torch.Tensor([0.]).to(device)
+        # classification_neg_loss = torch.mean(torch.norm(torch.sigmoid(cls_neg_fine), dim=1, p=1))
+        classification_neg_loss = - torch.log(cls_neg_fine.softmax(dim=1)).sum(dim=1).mean() / NUM_CLASSES - log(NUM_CLASSES)
+        classification_pos_loss *= self.classification_pos_weight
+        classification_neg_loss *= self.classification_neg_weight
 
         # box regression loss (refinement step)
         localization_refine_loss, spatial_constraint_refine_loss, _ = self._box_regression_loss(
@@ -565,16 +575,21 @@ class OrientedRepPointsLoss(nn.Module):
             gt_obb,
             assigned_gt_idxs_coarse,
             assigned_labels_coarse,
-            # giou_loss_mask
+            kl_score_mask
         )
-        box_regression_refine_loss = (self.refine_localization_weight * localization_refine_loss +
-                                      self.refine_spatial_constraint_weight * spatial_constraint_refine_loss)
+
+        box_regression_refine_loss = (self.refine_localization_weight * localization_refine_loss
+                                      + self.refine_spatial_constraint_weight * spatial_constraint_refine_loss)
 
         # ReLU to solve divergent loss + ignore NaNs
-        if type(classification_loss) != int:
-            classification_loss = torch.relu(classification_loss)
-            if torch.isnan(classification_loss):
-                classification_loss = torch.zeros(1).to(device)
+        if type(classification_pos_loss) != int:
+            classification_pos_loss = torch.relu(classification_pos_loss)
+            if torch.isnan(classification_pos_loss):
+                classification_pos_loss = torch.zeros(1).to(device)
+        if type(classification_neg_loss) != int:
+            classification_loss = torch.relu(classification_neg_loss)
+            if torch.isnan(classification_neg_loss):
+                classification_neg_loss = torch.zeros(1).to(device)
         if type(box_regression_init_loss) != int:
             box_regression_init_loss = torch.relu(box_regression_init_loss)
             if torch.isnan(box_regression_init_loss):
@@ -584,33 +599,41 @@ class OrientedRepPointsLoss(nn.Module):
             if torch.isnan(box_regression_refine_loss):
                 box_regression_refine_loss = torch.zeros(1).to(device)
 
+        classification_loss = classification_pos_loss + classification_neg_loss
+
         # precision/recall metrics for every class
-        classification_hard = torch.argmax(cls_pos_fine, dim=1) + 1
-        precision = precision_score(assigned_labels_pos_fine.to("cpu"), classification_hard.to("cpu"),
-                                    average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
-        recall = recall_score(assigned_labels_pos_fine.to("cpu"), classification_hard.to("cpu"),
-                              average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
+        if kl_score_mask is not None:
+            classification_hard = torch.argmax(cls_pos_coarse[kl_score_mask], dim=1) + 1
+            precision = precision_score(assigned_labels_pos_coarse[kl_score_mask].to("cpu"),
+                                        classification_hard.to("cpu"),
+                                        average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
+            recall = recall_score(assigned_labels_pos_coarse[kl_score_mask].to("cpu"), classification_hard.to("cpu"),
+                                  average=None, zero_division=0, labels=range(1, NUM_CLASSES + 1))
+        else:
+            precision = np.zeros(NUM_CLASSES)
+            recall = np.zeros(NUM_CLASSES)
 
         loss_dict = {
             'classification': classification_loss,
-            'objectness': objectness_loss,
             'regression_init': box_regression_init_loss,
+            'localization_init': localization_init_loss,
+            'spatial_constraint_init': spatial_constraint_init_loss,
             'regression_refine': box_regression_refine_loss,
             'precision': torch.Tensor(precision).to(device),
             'recall': torch.Tensor(recall).to(device)
         }
 
-        return classification_loss + objectness_loss + box_regression_init_loss + box_regression_refine_loss, loss_dict
+        return classification_loss + box_regression_init_loss + box_regression_refine_loss, loss_dict
 
 
 if __name__ == '__main__':
     model = DetectionModel().to(device)
-    img_in = torch.rand(1, 3, 256, 256).to(device)
+    img_in = torch.rand(1, 3, 512, 512).to(device)
 
     # fake ground truth data
     gt_labels_ = torch.tensor([3, 1]).to(device)
     gt_obboxes_ = torch.tensor([[1, 1, 1, 10, 10, 10, 10, 1],
-                                [10, 10, 10, 50, 50, 50, 50, 10]]).to(device)
+                                [10, 10, 10, 50, 50, 50, 50, 10]]).float().to(device)
 
     # fake empty ground truth data
     # gt_labels_ = torch.tensor([])
@@ -622,10 +645,12 @@ if __name__ == '__main__':
     loss, loss_dict = rep_points_loss.get_loss(rep_points_init_, rep_points_refine_, classification_, gt_obboxes_,
                                                gt_labels_)
 
-    # print(torch.max(classification_['P5'], dim=1))
-    print(loss, loss_dict)
+    # print(loss, loss_dict)
 
     torch.autograd.set_detect_anomaly(True)
+    grad_check = torch.autograd.gradcheck(OrientedRepPointsLoss.get_loss, (
+    rep_points_loss, rep_points_init_, rep_points_refine_, classification_, gt_obboxes_, gt_labels_))
+    print(f'Gradient check: {grad_check}')
 
     learning_rate = 1e-3
     weight_decay = 5e-5
