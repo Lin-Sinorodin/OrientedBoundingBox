@@ -32,7 +32,8 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
         return torch.Tensor([]), torch.Tensor([])
 
     # Convert classification logits into probabilities
-    classification = classification.softmax(dim=1)
+    classification = classification.sigmoid()
+    # classification = classification.softmax(dim=1)
     classification_hard = classification.argmax(dim=1) + 1
 
     # Initialize list of final predictions
@@ -81,7 +82,6 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
 
             # Discard predictions with KL divergence below threshold and centers outside gt bbox
             keep = torch.logical_and(kl_with_cls_max > nms_thr, torch.logical_not(inside_box))
-            # keep = kl_with_cls_max > nms_thr
             classification_curr = classification_curr[keep]
             rep_points_curr = rep_points_curr[keep]
             mu_curr = mu_curr[keep]
@@ -91,6 +91,20 @@ def nms_kl(classification, rep_points, cls_thr=0.9, nms_thr=1):
         return torch.Tensor([]), torch.Tensor([])
 
     return torch.stack(classification_final, dim=0), torch.stack(rep_points_final, dim=0)
+
+
+def infer(model, img, cls_thr=0.5, nms_thr=10):
+    # Feed image through model
+    _, rep_points_refine, classification = model(img)
+
+    # Flatten image
+    classification_flattened, rep_points_flattened = flatten_head_output(classification, rep_points_refine)
+
+    # Perform NMS
+    classification_nms, rep_points_nms = nms_kl(classification_flattened, rep_points_flattened,
+                                                cls_thr=cls_thr, nms_thr=nms_thr)
+
+    return classification_nms, rep_points_nms
 
 
 if __name__ == '__main__':
@@ -103,6 +117,6 @@ if __name__ == '__main__':
     print(classification_flattened.shape)
     print(rep_points_flattened.shape)
 
-    classification_nms, rep_points_nms = nms_kl(classification_flattened, rep_points_flattened, cls_thr=0.12, nms_thr=1)
+    classification_nms, rep_points_nms = nms_kl(classification_flattened, rep_points_flattened, cls_thr=0.2, nms_thr=10)
     print(classification_nms.shape)
     print(rep_points_nms.shape)

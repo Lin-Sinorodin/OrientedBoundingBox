@@ -49,7 +49,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     # Load previous state
-    last_epoch = 23
+    last_epoch = 0
     if last_epoch > 0:
         checkpoint = torch.load(f'./checkpoints/epoch_{last_epoch}.pt', map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['state_dict'])

@@ -334,6 +334,18 @@ def xywha_to_xyxy(obbs: torch.Tensor) -> torch.Tensor:
     return xyxy
 
 
+def cs_to_angle(c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the angle corresponding to given cosine and sine values.
+
+    :param c: (Tensor[...]) Tensor for cosine values.
+    :param s: (Tensor[...]) Tensor of sine values.
+    return: (Tensor[...]) Tensor of computed angles.
+    """
+
+    return torch.angle(c + 1j * s)
+
+
 def is_inside_box(points: torch.Tensor, box_points: torch.Tensor) -> torch.Tensor:
     """
     Determines for each point whether it lies inside the bbox.

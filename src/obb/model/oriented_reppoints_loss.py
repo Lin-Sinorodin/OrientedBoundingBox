@@ -5,6 +5,7 @@ from typing import Dict
 from einops import rearrange
 from kornia.losses import focal_loss, binary_focal_loss_with_logits
 from sklearn.metrics import precision_score, recall_score
+from math import log
 
 from obb.model.custom_model import DetectionModel
 from obb.utils.polygon import convex_hull, polygon_intersection, polygon_area, polygon_iou
@@ -359,7 +360,7 @@ class OrientedRepPointsLoss(nn.Module):
 
         # balance parameters between components of the loss. values from oriented rep points config file.
         self.classification_pos_weight = 0.5
-        self.classification_neg_weight = 0.1
+        self.classification_neg_weight = 0.5
         self.init_localization_weight = 0.5
         self.refine_localization_weight = 1.
         self.init_spatial_constraint_weight = 0.05
@@ -563,7 +564,8 @@ class OrientedRepPointsLoss(nn.Module):
                                                  alpha=0.25, gamma=2, reduction='mean')
         else:
             classification_pos_loss = torch.Tensor([0.]).to(device)
-        classification_neg_loss = torch.mean(torch.norm(torch.sigmoid(cls_neg_fine), dim=1, p=1))
+        # classification_neg_loss = torch.mean(torch.norm(torch.sigmoid(cls_neg_fine), dim=1, p=1))
+        classification_neg_loss = - torch.log(cls_neg_fine.softmax(dim=1)).sum(dim=1).mean() / NUM_CLASSES - log(NUM_CLASSES)
         classification_pos_loss *= self.classification_pos_weight
         classification_neg_loss *= self.classification_neg_weight
 

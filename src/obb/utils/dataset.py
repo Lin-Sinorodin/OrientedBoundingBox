@@ -168,8 +168,8 @@ class Dataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    # dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
-    # dataset_downloader.download_data_from_drive()
+    dataset_downloader = DatasetDownloader(path='../../../assets/DOTA')
+    dataset_downloader.download_data_from_drive()
 
     train_dataset = Dataset(path='../../../assets/DOTA_sample_data/split')
     train_data_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
