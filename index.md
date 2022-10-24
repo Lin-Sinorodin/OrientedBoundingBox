@@ -50,8 +50,9 @@ ___
 
 ## Tracking Algorithm Results
 
-![](assets/images/results/tracking_result_01.mp4)
-![](assets/images/results/tracking_result_02.mp4)
+[Example1](https://github.com/Lin-Sinorodin/OrientedBoundingBox/blob/gh-pages/assets/images/results/tracking_result_01.mp4)
+
+[Example2](https://github.com/Lin-Sinorodin/OrientedBoundingBox/blob/gh-pages/assets/images/results/tracking_result_02.mp4)
 
 ___
 
